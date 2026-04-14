@@ -1,7 +1,7 @@
 import type { LatLon, Stop } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { searchStops } from "../api";
 
 const DEBOUNCE_MS = 350;
@@ -25,7 +25,9 @@ function stopDetails(stop: Stop): string {
 }
 
 export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => void }) {
+  const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const query = useDebounced(input.trim(), DEBOUNCE_MS);
   const searching = query.length >= MIN_QUERY_LENGTH;
@@ -37,11 +39,39 @@ export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => 
     staleTime: 5 * 60_000,
   });
 
+  const close = () => {
+    setOpen(false);
+    setInput("");
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapperRef.current?.contains(e.target as Node)) close();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Search stops"
+        className="absolute left-3 top-3 z-[1000] rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition hover:bg-slate-800"
+      >
+        <Search className="h-5 w-5" aria-hidden />
+      </button>
+    );
+  }
+
   return (
-    <div className="absolute left-3 top-3 z-[1000] w-[calc(100%-5.5rem)] md:w-96">
+    <div ref={wrapperRef} className="absolute left-3 top-3 z-[1000] w-[calc(100%-5.5rem)] md:w-96">
       <div className="flex items-center rounded-xl border border-slate-700 bg-slate-900 shadow-lg">
         <Search className="ml-3 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
         <input
+          autoFocus
           className="min-w-0 flex-1 bg-transparent px-2 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500"
           placeholder="Search stops…"
           aria-label="Search stops"
@@ -53,8 +83,8 @@ export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => 
         )}
         <button
           type="button"
-          onClick={() => setInput("")}
-          aria-label="Clear search"
+          onClick={close}
+          aria-label="Close search"
           className="mx-2 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
         >
           <X className="h-4 w-4" aria-hidden />
@@ -77,7 +107,7 @@ export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => 
                   className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-800"
                   onClick={() => {
                     props.onPickStop(stop);
-                    setInput("");
+                    close();
                   }}
                 >
                   <span className="font-medium text-slate-100">{stop.name}</span>

@@ -15,7 +15,7 @@ import { PUNCTUALITY_COLOR, etaLabel, formatClock, punctualityLabel } from "../a
 import { useOnline } from "../hooks/useOnline";
 
 /** Visible height of the sheet in preview mode, excluding the bottom safe area. */
-const SHEET_PREVIEW_HEIGHT = 132;
+export const SHEET_PREVIEW_HEIGHT = 132;
 
 const FLICK_VELOCITY = 0.4;
 const VELOCITY_WINDOW_MS = 100;

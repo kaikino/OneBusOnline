@@ -21,7 +21,7 @@ import {
 import { loadPersistedStops, savePersistedStops } from "../stopsPersistence";
 
 const VIEWPORT_DEBOUNCE_MS = 100;
-const ICON_SIZE = 26;
+const ICON_SIZE = 24;
 const ICON_HALF = ICON_SIZE / 2;
 
 const USER_LOCATION_ICON = leaflet.divIcon({
@@ -56,7 +56,7 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
   const cached = STOP_ICON_CACHE.get(key);
   if (cached) return cached;
 
-  const dotSize = selected ? 20 : 20;
+  const dotSize = selected ? 18 : 18;
   const dotBorder = selected ? 2 : 2;
   const dotColor = selected ? "#facc15" : "#0ea5e9";
   const dotBorderColor = selected ? "#ffffff" : "#0f172a";
@@ -88,7 +88,8 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
 /** Below this zoom we do not request new bbox data; already-loaded stops still render. */
-const MIN_ZOOM_FETCH_STOPS = 13;
+const MIN_ZOOM_SHOW_STOPS = 13;
+const MIN_ZOOM_FETCH_STOPS = 15;
 const TRACKPAD_SCROLL_ZOOM_SPEED = 0.008;
 const MOUSE_WHEEL_ZOOM_SPEED = 0.003;
 const PINCH_ZOOM_SPEED = 0.03;
@@ -196,16 +197,19 @@ function SmoothWheelZoom() {
     let accumulatedZoomDelta = 0;
     let isPinch = false;
     let mousePos: L.Point | null = null;
+    let anchorLatLng: L.LatLng | null = null;
     let rafId: number | null = null;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let zooming = false;
     let targetZoom = map.getZoom();
+    let targetCenter: L.LatLng | null = map.getCenter();
     const m = map as MapZoomInternals;
 
     function beginZoom() {
       if (zooming) return;
       zooming = true;
       targetZoom = map.getZoom();
+      targetCenter = map.getCenter();
       m._animatingZoom = true;
       m._mapPane?.classList.add("leaflet-zoom-anim");
     }
@@ -215,14 +219,16 @@ function SmoothWheelZoom() {
       zooming = false;
       m._animatingZoom = false;
       m._mapPane?.classList.remove("leaflet-zoom-anim");
-      if (mousePos) {
+      if (targetCenter) {
+        map.setView(targetCenter, targetZoom, { animate: false });
+      } else if (mousePos) {
         map.setZoomAround(mousePos, targetZoom, { animate: false });
       }
     }
 
     function apply() {
       rafId = null;
-      if (!accumulatedZoomDelta || !mousePos) return;
+      if (!accumulatedZoomDelta || !mousePos || !anchorLatLng) return;
 
       beginZoom();
 
@@ -234,14 +240,13 @@ function SmoothWheelZoom() {
         Math.min(map.getMaxZoom(), targetZoom + delta)
       );
 
-      const scale = map.getZoomScale(targetZoom);
       const viewHalf = map.getSize().divideBy(2);
-      const centerOffset = mousePos
-        .subtract(viewHalf)
-        .multiplyBy(1 - 1 / scale);
-      const center = map.containerPointToLatLng(viewHalf.add(centerOffset));
+      // Keep the geo point under the cursor fixed at `mousePos` for this target zoom.
+      const anchorProjected = map.project(anchorLatLng, targetZoom);
+      const centerProjected = anchorProjected.subtract(mousePos).add(viewHalf);
+      targetCenter = map.unproject(centerProjected, targetZoom);
 
-      map.fire("zoomanim", { center, zoom: targetZoom, noUpdate: true });
+      map.fire("zoomanim", { center: targetCenter, zoom: targetZoom, noUpdate: true });
 
       if (settleTimer) clearTimeout(settleTimer);
       settleTimer = setTimeout(endZoom, WHEEL_SETTLE_MS);
@@ -266,6 +271,7 @@ function SmoothWheelZoom() {
           : TRACKPAD_SCROLL_ZOOM_SPEED;
       accumulatedZoomDelta -= raw * speed;
       mousePos = map.mouseEventToContainerPoint(e as unknown as MouseEvent);
+      anchorLatLng = map.containerPointToLatLng(mousePos);
       if (rafId === null) rafId = requestAnimationFrame(apply);
     }
 
@@ -434,7 +440,7 @@ export function TransitMap(props: {
     ) : null;
 
   const stopsToPlot = useMemo(() => {
-    if (!viewport || viewport.zoom < MIN_ZOOM_FETCH_STOPS) return [];
+    if (!viewport || viewport.zoom < MIN_ZOOM_SHOW_STOPS) return [];
     const { minLat, maxLat, minLon, maxLon } = viewport.bbox;
     return [...stopsMergedRef.current.values()].filter(
       (s) =>

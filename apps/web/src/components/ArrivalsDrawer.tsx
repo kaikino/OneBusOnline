@@ -185,12 +185,15 @@ export function ArrivalsDrawer(props: {
     for (const row of rows) {
       const routeKey = row.routeId || row.routeShortName;
       if (seen.has(routeKey)) continue;
+      const mins = minutesUntil(displayTimeMs(row), props.nowMs);
+      // Oldest previewed arrival is -2 min; skip stale rows at -3 min or older.
+      if (mins <= -2) continue;
       seen.add(routeKey);
       out.push(row);
       if (out.length >= 6) break;
     }
     return out;
-  }, [rows]);
+  }, [rows, props.nowMs]);
 
   const hiddenCount = Math.max(0, rows.length - previewRows.length);
   const showStaleBanner = offline && query.isError && rows.length > 0;
@@ -490,11 +493,11 @@ export function ArrivalsDrawer(props: {
                   <PreviewChip key={`${row.tripId}-${row.scheduledArrivalTimeMs}`} row={row} nowMs={props.nowMs} />
                 ))}
               </div>
-              {hiddenCount > 0 ? (
+              {/* {hiddenCount > 0 ? (
                 <p className="mt-2 text-xs text-slate-500">
                   +{hiddenCount} more
                 </p>
-              ) : null}
+              ) : null} */}
             </>
           )}
         </div>
@@ -510,12 +513,13 @@ function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
   const mins = minutesUntil(t, nowMs);
   const roundedMins = Math.round(mins);
   const label = mins < 1 && mins >= 0 ? "<1 min" : `${roundedMins} min`;
+  const isOld = mins < 0;
 
   return (
     <div
-      className={`flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 ${punctualityClasses(row.punctuality)}`}
+      className={`flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
     >
-      <span className="text-sm font-bold text-sky-300">
+      <span className={`text-sm font-bold ${isOld ? "text-slate-400" : "text-sky-300"}`}>
         {row.routeShortName}
       </span>
       <span className="text-sm font-semibold tabular-nums">{label}</span>
@@ -528,6 +532,7 @@ function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
   const mins = minutesUntil(t, nowMs);
   const roundedMins = Math.round(mins);
   const label = mins < 1 && mins >= 0 ? "< 1 min" : `${roundedMins} min`;
+  const isOld = mins < 0;
   const scheduledOnly = row.punctuality === "scheduled_only";
   const etaStatus = (() => {
     if (scheduledOnly) return "Scheduled";
@@ -548,20 +553,20 @@ function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
   const arrivalVerb = mins < 0 ? "Arrived" : "Arriving";
 
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
+    <li className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${isOld ? "border-slate-800 bg-slate-900/60 text-slate-400" : "border-slate-800 bg-slate-900/80"}`}>
       <div className="min-w-0">
-        <div className="font-medium text-slate-100">
-          <span className="text-sky-300">{row.routeShortName}</span>
+        <div className={`font-medium ${isOld ? "text-slate-400" : "text-slate-100"}`}>
+          <span className={isOld ? "text-slate-400" : "text-sky-300"}>{row.routeShortName}</span>
           {row.headsign ? (
-            <span className="ml-2 text-slate-300">{row.headsign}</span>
+            <span className={`ml-2 ${isOld ? "text-slate-400" : "text-slate-300"}`}>{row.headsign}</span>
           ) : null}
         </div>
-        <div className="text-xs text-slate-500">
+        <div className={`text-xs ${isOld ? "text-slate-500" : "text-slate-500"}`}>
           {`${arrivalVerb} at ${arrivalClock} (${etaStatus})`}
         </div>
       </div>
       <div
-        className={`shrink-0 text-right text-lg font-semibold tabular-nums ${punctualityClasses(row.punctuality)}`}
+        className={`shrink-0 text-right text-lg font-semibold tabular-nums ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
       >
         {label}
       </div>

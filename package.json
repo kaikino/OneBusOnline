@@ -1,0 +1,20 @@
+{
+  "name": "onebusonline",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @onebus/shared && npm run build -w @onebus/server && npm run build -w @onebus/web",
+    "dev": "npm run build -w @onebus/shared && concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev -w @onebus/web\"",
+    "dev:server": "node --env-file=./.env ./node_modules/tsx/dist/cli.mjs watch apps/server/src/index.ts",
+    "dev:simple": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev -w @onebus/web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

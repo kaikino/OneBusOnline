@@ -152,6 +152,7 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
       minZoom={3}
       maxZoom={19}
       zoomSnap={0}
+      wheelPxPerZoomLevel={120}
       zoomControl={false}
       className="h-full w-full"
     >

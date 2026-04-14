@@ -1,10 +1,24 @@
-import type { ArrivalsResponse, Stop } from "@onebus/shared";
+import type { Arrival, ArrivalsResponse, Stop } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Bus, RefreshCw, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { fetchArrivals } from "../api";
 import { PUNCTUALITY_COLOR, etaLabel, formatClock, punctualityLabel } from "../arrivalUi";
 import { useOnline } from "../hooks/useOnline";
+
+/** Visible height of the sheet in preview mode, excluding the bottom safe area. */
+const SHEET_PREVIEW_HEIGHT = 132;
+
+const FLICK_VELOCITY = 0.4;
+const VELOCITY_WINDOW_MS = 100;
 
 const MINUTES_AFTER = 120;
 const EXTEND_STEP_MINUTES = 120;
@@ -29,7 +43,7 @@ function save(response: ArrivalsResponse) {
 }
 
 /** Live arrivals for a stop, falling back to the last saved response when the network fails. */
-function useArrivals(stopId: string) {
+function useArrivals(stopId: string | undefined) {
   const [minutesAfter, setMinutesAfter] = useState(MINUTES_AFTER);
 
   const [windowStopId, setWindowStopId] = useState(stopId);
@@ -40,7 +54,8 @@ function useArrivals(stopId: string) {
 
   const query = useQuery({
     queryKey: ["arrivals", stopId, minutesAfter],
-    queryFn: () => fetchArrivals(stopId, minutesAfter),
+    queryFn: () => fetchArrivals(stopId!, minutesAfter),
+    enabled: stopId !== undefined,
     staleTime: 15_000,
     refetchInterval: 20_000,
     // Keeps the list in place while a longer window loads.
@@ -51,7 +66,7 @@ function useArrivals(stopId: string) {
     if (query.data && !query.isPlaceholderData) save(query.data);
   }, [query.data, query.isPlaceholderData]);
 
-  const saved = useMemo(() => loadSaved(stopId), [stopId]);
+  const saved = useMemo(() => (stopId ? loadSaved(stopId) : undefined), [stopId]);
 
   return {
     arrivals: (query.data ?? saved)?.arrivals ?? [],
@@ -74,11 +89,196 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
-export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => void }) {
+export type SheetSnap = "expanded" | "preview";
+
+interface Gesture {
+  startY: number;
+  startOffset: number;
+  previewOffset: number;
+  samples: { y: number; time: number }[];
+}
+
+/**
+ * Vertical drag for a bottom sheet that rests either expanded or as a preview
+ * strip `previewHeight` px tall (plus the sheet's bottom padding).
+ */
+function useSheetDrag(options: {
+  sheetRef: RefObject<HTMLElement | null>;
+  expanded: boolean;
+  previewHeight: number;
+  onSnap: (snap: SheetSnap) => void;
+}) {
+  const { sheetRef, expanded, previewHeight, onSnap } = options;
+  const gesture = useRef<Gesture | null>(null);
+  const [drag, setDrag] = useState<{ offset: number; raised: boolean } | null>(null);
+
+  /** Px below the expanded position. */
+  const offsetAt = (g: Gesture, clientY: number) =>
+    Math.min(g.previewOffset, Math.max(0, g.startOffset + clientY - g.startY));
+
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    const sheet = sheetRef.current;
+    if (!sheet || (e.target as Element).closest("button")) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    const bottomPadding = parseFloat(getComputedStyle(sheet).paddingBottom);
+    const previewOffset = sheet.offsetHeight - previewHeight - bottomPadding;
+    const startOffset = expanded ? 0 : previewOffset;
+    gesture.current = {
+      startY: e.clientY,
+      startOffset,
+      previewOffset,
+      samples: [{ y: e.clientY, time: e.timeStamp }],
+    };
+    setDrag({ offset: startOffset, raised: expanded });
+  };
+
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    const g = gesture.current;
+    if (!g) return;
+    g.samples.push({ y: e.clientY, time: e.timeStamp });
+    while (e.timeStamp - g.samples[0].time > VELOCITY_WINDOW_MS) g.samples.shift();
+    const offset = offsetAt(g, e.clientY);
+    setDrag({ offset, raised: offset < g.previewOffset });
+  };
+
+  const onPointerUp = (e: PointerEvent<HTMLElement>) => {
+    const g = gesture.current;
+    if (!g) return;
+    gesture.current = null;
+    setDrag(null);
+
+    const oldest = g.samples[0];
+    const elapsed = e.timeStamp - oldest.time;
+    const velocity = elapsed > 0 ? (e.clientY - oldest.y) / elapsed : 0;
+    if (velocity < -FLICK_VELOCITY) onSnap("expanded");
+    else if (velocity > FLICK_VELOCITY) onSnap("preview");
+    else onSnap(offsetAt(g, e.clientY) < g.previewOffset / 2 ? "expanded" : "preview");
+  };
+
+  const onPointerCancel = () => {
+    gesture.current = null;
+    setDrag(null);
+  };
+
+  return {
+    /** Px below the expanded position while a drag is in progress. */
+    dragOffset: drag?.offset,
+    /** Whether the sheet currently shows more than its preview strip. */
+    raised: drag?.raised ?? expanded,
+    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
+  };
+}
+
+function restingTransform(open: boolean, expanded: boolean): string {
+  if (!open) return "translateY(100%)";
+  if (expanded) return "translateY(0)";
+  return `translateY(calc(100% - ${SHEET_PREVIEW_HEIGHT}px - env(safe-area-inset-bottom, 0px)))`;
+}
+
+function BottomSheet(props: {
+  open: boolean;
+  expanded: boolean;
+  onSnap: (snap: SheetSnap) => void;
+  header: ReactNode;
+  /** Receives whether the sheet shows more than its preview strip, which flips mid-drag. */
+  children: (raised: boolean) => ReactNode;
+}) {
+  const { open, expanded, onSnap, header, children } = props;
+  const sheetRef = useRef<HTMLElement>(null);
+  const { dragOffset, raised, handlers } = useSheetDrag({
+    sheetRef,
+    expanded,
+    previewHeight: SHEET_PREVIEW_HEIGHT,
+    onSnap,
+  });
+  const dragging = dragOffset !== undefined;
+
+  return (
+    <section
+      ref={sheetRef}
+      inert={!open}
+      style={{
+        transform: dragging ? `translateY(${dragOffset}px)` : restingTransform(open, expanded),
+      }}
+      className={`fixed inset-x-0 bottom-0 z-[2001] flex h-[74dvh] flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] ${
+        dragging ? "" : "transition-transform duration-300"
+      }`}
+    >
+      <div className="cursor-grab touch-none select-none pt-3" {...handlers}>
+        <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-600" />
+        {header}
+      </div>
+      {children(raised)}
+    </section>
+  );
+}
+
+const routeKey = (arrival: Arrival) => `${arrival.routeId}:${arrival.headsign}`;
+
+/** The next arrival of each route and direction. */
+function nextPerRoute(arrivals: Arrival[]): Arrival[] {
+  const next = new Map<string, Arrival>();
+  for (const arrival of arrivals) {
+    if (!next.has(routeKey(arrival))) next.set(routeKey(arrival), arrival);
+  }
+  return [...next.values()];
+}
+
+function ArrivalChip({ arrival, now }: { arrival: Arrival; now: number }) {
+  return (
+    <div className="flex shrink-0 flex-col rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5">
+      <span className="flex items-center gap-1.5 text-sm">
+        <span className="font-bold text-sky-300">{arrival.routeShortName}</span>
+        <span className={`font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}>
+          {etaLabel(arrival.arrivalTimeMs, now)}
+        </span>
+      </span>
+      <span className="max-w-[7rem] truncate text-[0.65rem] leading-tight text-slate-400">
+        {arrival.headsign}
+      </span>
+    </div>
+  );
+}
+
+function ArrivalRow({ arrival, now }: { arrival: Arrival; now: number }) {
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
+      <div className="min-w-0">
+        <div className="font-medium">
+          <span className="text-sky-300">{arrival.routeShortName}</span>
+          <span className="ml-2 text-slate-300">{arrival.headsign}</span>
+        </div>
+        <div className="text-xs text-slate-500">
+          Arriving at {formatClock(arrival.arrivalTimeMs)} (
+          {punctualityLabel(arrival.punctuality, arrival.deviationSec)})
+        </div>
+      </div>
+      <div
+        className={`shrink-0 text-lg font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}
+      >
+        {etaLabel(arrival.arrivalTimeMs, now)}
+      </div>
+    </li>
+  );
+}
+
+interface Props {
+  stop: Stop | null;
+  expanded: boolean;
+  onSnap: (snap: SheetSnap) => void;
+  onClose: () => void;
+}
+
+export function ArrivalsDrawer({ stop, expanded, onSnap, onClose }: Props) {
   const now = useNow(5000);
   const online = useOnline();
   const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
-    useArrivals(stop.id);
+    useArrivals(stop?.id);
+
+  // Keeps the stop on screen while the sheet slides closed.
+  const [shownStop, setShownStop] = useState(stop);
+  if (stop && stop !== shownStop) setShownStop(stop);
 
   let notice: string | null = null;
   if (arrivals.length > 0) {
@@ -93,12 +293,12 @@ export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => v
     notice = isLoading ? "Loading…" : "No upcoming arrivals.";
   }
 
-  return (
-    <section className="fixed inset-x-0 bottom-0 z-[2001] flex max-h-[60dvh] flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] pt-3">
+  const header = (
+    <>
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold text-slate-50">
           <Bus className="h-5 w-5 shrink-0 text-sky-400" aria-hidden />
-          <span className="truncate">{stop.name}</span>
+          <span className="truncate">{shownStop?.name}</span>
         </h2>
         <div className="flex shrink-0 gap-1 text-slate-400">
           <button
@@ -120,44 +320,48 @@ export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => v
           </button>
         </div>
       </div>
-      {stop.code && <p className="mt-1 text-sm text-slate-400">Code {stop.code}</p>}
-      <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
-        {notice && <p className="mb-2 text-sm text-slate-400">{notice}</p>}
-        <ul className="space-y-2">
-          {arrivals.map((arrival) => (
-            <li
-              key={`${arrival.tripId}:${arrival.scheduledTimeMs}`}
-              className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="font-medium">
-                  <span className="text-sky-300">{arrival.routeShortName}</span>
-                  <span className="ml-2 text-slate-300">{arrival.headsign}</span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  Arriving at {formatClock(arrival.arrivalTimeMs)} (
-                  {punctualityLabel(arrival.punctuality, arrival.deviationSec)})
-                </div>
-              </div>
-              <div
-                className={`shrink-0 text-lg font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}
+      {expanded && shownStop?.code && (
+        <p className="mt-1 text-sm text-slate-400">Code {shownStop.code}</p>
+      )}
+    </>
+  );
+
+  return (
+    <BottomSheet open={stop !== null} expanded={expanded} onSnap={onSnap} header={header}>
+      {(raised) => (
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+          {notice && <p className="mb-2 text-sm text-slate-400">{notice}</p>}
+          {raised ? (
+            <>
+              <ul className="space-y-2">
+                {arrivals.map((arrival) => (
+                  <ArrivalRow
+                    key={`${arrival.tripId}:${arrival.scheduledTimeMs}`}
+                    arrival={arrival}
+                    now={now}
+                  />
+                ))}
+              </ul>
+              <button
+                type="button"
+                disabled={isFetching || !online}
+                onClick={extend}
+                className="mt-3 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:border-sky-600 hover:bg-slate-800 disabled:opacity-50"
               >
-                {etaLabel(arrival.arrivalTimeMs, now)}
-              </div>
-            </li>
-          ))}
-        </ul>
-        <button
-          type="button"
-          disabled={isFetching || !online}
-          onClick={extend}
-          className="mt-3 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:border-sky-600 hover:bg-slate-800 disabled:opacity-50"
-        >
-          {isFetching
-            ? "Loading…"
-            : `Show more arrivals (next ${(minutesAfter + EXTEND_STEP_MINUTES) / 60} hours)`}
-        </button>
-      </div>
-    </section>
+                {isFetching
+                  ? "Loading…"
+                  : `Show more arrivals (next ${(minutesAfter + EXTEND_STEP_MINUTES) / 60} hours)`}
+              </button>
+            </>
+          ) : (
+            <div className="flex gap-2 overflow-hidden">
+              {nextPerRoute(arrivals).map((arrival) => (
+                <ArrivalChip key={routeKey(arrival)} arrival={arrival} now={now} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </BottomSheet>
   );
 }

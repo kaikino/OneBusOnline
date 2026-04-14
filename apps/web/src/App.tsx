@@ -13,11 +13,17 @@ export default function App() {
   const online = useOnline();
   const mapRef = useRef<LeafletMap>(null);
   const [stop, setStop] = useState<Stop | null>(null);
+  const [drawerExpanded, setDrawerExpanded] = useState(false);
   const [userPosition, setUserPosition] = useState<LatLon>();
   const [locating, setLocating] = useState(false);
 
   const flyTo = ({ lat, lon }: LatLon) => {
     mapRef.current?.flyTo([lat, lon], FOCUS_ZOOM, { duration: 1 });
+  };
+
+  const selectStop = (next: Stop | null) => {
+    setStop(next);
+    setDrawerExpanded(false);
   };
 
   const locate = () => {
@@ -51,7 +57,7 @@ export default function App() {
         <SearchBar
           origin={userPosition}
           onPickStop={(picked) => {
-            setStop(picked);
+            selectStop(picked);
             flyTo(picked);
           }}
         />
@@ -59,7 +65,7 @@ export default function App() {
           ref={mapRef}
           userPosition={userPosition}
           selectedStop={stop}
-          onSelectStop={setStop}
+          onSelectStop={selectStop}
         />
         <button
           type="button"
@@ -71,7 +77,12 @@ export default function App() {
           <Crosshair className={`h-5 w-5 ${locating ? "animate-spin" : ""}`} aria-hidden />
         </button>
       </main>
-      {stop && <ArrivalsDrawer stop={stop} onClose={() => setStop(null)} />}
+      <ArrivalsDrawer
+        stop={stop}
+        expanded={drawerExpanded}
+        onSnap={(snap) => setDrawerExpanded(snap === "expanded")}
+        onClose={() => selectStop(null)}
+      />
     </div>
   );
 }

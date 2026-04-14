@@ -102,11 +102,15 @@ async function searchByCode(code: string, origin = DEFAULT_SEARCH_ORIGIN): Promi
   return data.list.map(toStop);
 }
 
-export function arrivalsForStop(stopId: string, minutesAfter: number): Promise<ArrivalsResponse> {
-  return cached(`arrivals:${stopId}:${minutesAfter}`, TTL_SEC.arrivals, async () => {
+export function arrivalsForStop(
+  stopId: string,
+  minutesAfter: number,
+  minutesBefore: number,
+): Promise<ArrivalsResponse> {
+  return cached(`arrivals:${stopId}:${minutesAfter}:${minutesBefore}`, TTL_SEC.arrivals, async () => {
     const { data } = await client.arrivalAndDeparture.list(stopId, {
       minutesAfter,
-      minutesBefore: 0,
+      minutesBefore,
     });
     const arrivals = data.entry.arrivalsAndDepartures
       .map(toArrival)

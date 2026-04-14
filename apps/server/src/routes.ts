@@ -20,6 +20,7 @@ const searchQuery = z.object({
 
 const arrivalsQuery = z.object({
   minutesAfter: z.coerce.number().int().min(1).max(1440).default(120),
+  minutesBefore: z.coerce.number().int().min(0).max(120).default(15),
 });
 
 const requireOba: RequestHandler = (_req, res, next) => {
@@ -55,7 +56,7 @@ routes.get("/stops/search", async (req, res) => {
 });
 
 routes.get("/stops/:id/arrivals", async (req, res) => {
-  const { minutesAfter } = arrivalsQuery.parse(req.query);
+  const { minutesAfter, minutesBefore } = arrivalsQuery.parse(req.query);
   res.set("Cache-Control", "public, max-age=15");
-  res.json(await arrivalsForStop(req.params.id, minutesAfter));
+  res.json(await arrivalsForStop(req.params.id, minutesAfter, minutesBefore));
 });

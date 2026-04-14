@@ -89,7 +89,8 @@ const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
 /** Below this zoom we do not request new bbox data; already-loaded stops still render. */
 const MIN_ZOOM_FETCH_STOPS = 13;
-const SMOOTH_ZOOM_SPEED = 0.008;
+const TRACKPAD_SCROLL_ZOOM_SPEED = 0.008;
+const MOUSE_WHEEL_ZOOM_SPEED = 0.003;
 const PINCH_ZOOM_SPEED = 0.03;
 const WHEEL_SETTLE_MS = 150;
 
@@ -192,7 +193,7 @@ function SmoothWheelZoom() {
   const map = useMap();
 
   useEffect(() => {
-    let accumulated = 0;
+    let accumulatedZoomDelta = 0;
     let isPinch = false;
     let mousePos: L.Point | null = null;
     let rafId: number | null = null;
@@ -221,12 +222,12 @@ function SmoothWheelZoom() {
 
     function apply() {
       rafId = null;
-      if (!accumulated || !mousePos) return;
+      if (!accumulatedZoomDelta || !mousePos) return;
 
       beginZoom();
 
-      const delta = accumulated * (isPinch ? PINCH_ZOOM_SPEED : SMOOTH_ZOOM_SPEED);
-      accumulated = 0;
+      const delta = accumulatedZoomDelta;
+      accumulatedZoomDelta = 0;
 
       targetZoom = Math.max(
         map.getMinZoom(),
@@ -255,8 +256,15 @@ function SmoothWheelZoom() {
           : e.deltaMode === 2
             ? e.deltaY * 60
             : e.deltaY;
-      accumulated -= raw;
       isPinch = e.ctrlKey;
+      const looksLikeMouseWheel =
+        e.deltaMode !== 0 || (Math.abs(e.deltaY) >= 40 && Math.abs(e.deltaX) < 1);
+      const speed = isPinch
+        ? PINCH_ZOOM_SPEED
+        : looksLikeMouseWheel
+          ? MOUSE_WHEEL_ZOOM_SPEED
+          : TRACKPAD_SCROLL_ZOOM_SPEED;
+      accumulatedZoomDelta -= raw * speed;
       mousePos = map.mouseEventToContainerPoint(e as unknown as MouseEvent);
       if (rafId === null) rafId = requestAnimationFrame(apply);
     }

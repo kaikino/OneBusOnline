@@ -14,8 +14,8 @@ body,
 }
 
 .marker {
-  --color: #2563eb;
-  --border: #fff;
+  --color: #0ea5e9;
+  --border: #0f172a;
   --dot-inset: 3px;
 }
 .marker-dot {
@@ -26,8 +26,13 @@ body,
   background: var(--color);
 }
 
+.marker-stop {
+  opacity: 0.8;
+}
 .marker-stop.marker-selected {
-  --color: #dc2626;
+  --color: #facc15;
+  --border: #fff;
+  opacity: 1;
 }
 
 .marker-user {

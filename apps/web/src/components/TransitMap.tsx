@@ -21,14 +21,14 @@ import {
 } from "../api";
 import { loadPersistedStops, savePersistedStops } from "../stopsPersistence";
 
-const STOP_MARKER_RADIUS = 4.5;
+const STOP_MARKER_RADIUS = 6;
 const VIEWPORT_DEBOUNCE_MS = 100;
 
 const USER_LOCATION_ICON = leaflet.divIcon({
   className: "",
   iconSize: [16, 16],
   iconAnchor: [8, 8],
-  html: '<div style="width:16px;height:16px;border-radius:50%;background:#0ea5e9;border:2.5px solid #fff;box-shadow:0 0 6px rgba(14,165,233,0.5);"></div>',
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#22c55e;border:2.5px solid #fff;box-shadow:0 0 6px rgba(34,197,94,0.5);"></div>',
 });
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
@@ -235,19 +235,22 @@ const StopMarkersLayer = memo(
     selectedId: string | undefined;
     onSelectStop: (s: StopSummary) => void;
   }) {
+    const selectedStop = props.selectedId
+      ? props.stops.find((s) => s.id === props.selectedId)
+      : undefined;
     return (
       <>
         {props.stops.map((s) => {
-          const selected = props.selectedId === s.id;
+          if (s.id === props.selectedId) return null;
           return (
             <CircleMarker
               key={s.id}
               center={[s.lat, s.lon]}
               radius={STOP_MARKER_RADIUS}
               pathOptions={{
-                color: selected ? "#ffffff" : "#0f172a",
-                fillColor: selected ? "#e11d48" : "#facc15",
-                fillOpacity: selected ? 1 : 0.5,
+                color: "#0f172a",
+                fillColor: "#0ea5e9",
+                fillOpacity: 0.5,
                 weight: 2,
                 className: "map-stop-marker",
               }}
@@ -257,6 +260,23 @@ const StopMarkersLayer = memo(
             />
           );
         })}
+        {selectedStop ? (
+          <CircleMarker
+            key={`sel-${selectedStop.id}`}
+            center={[selectedStop.lat, selectedStop.lon]}
+            radius={STOP_MARKER_RADIUS}
+            pathOptions={{
+              color: "#0f172a",
+              fillColor: "#facc15",
+              fillOpacity: 1,
+              weight: 2,
+              className: "map-stop-marker",
+            }}
+            eventHandlers={{
+              click: () => props.onSelectStop(selectedStop),
+            }}
+          />
+        ) : null}
       </>
     );
   },
@@ -270,8 +290,9 @@ export function TransitMap(props: {
   agencyCenter?: { lat: number; lon: number };
   userLat?: number;
   userLon?: number;
-  /** Increment when re-requesting the same coordinates so the map still re-centers. */
-  userLocateSeq?: number;
+  flyToLat?: number;
+  flyToLon?: number;
+  flyToSeq?: number;
   selectedStop: StopSummary | null;
   onSelectStop: (s: StopSummary) => void;
 }) {
@@ -350,13 +371,13 @@ export function TransitMap(props: {
     ? ([props.agencyCenter.lat, props.agencyCenter.lon] as [number, number])
     : DEFAULT_CENTER;
 
-  const flyUser =
-    props.userLat !== undefined && props.userLon !== undefined ? (
+  const flyTarget =
+    props.flyToLat !== undefined && props.flyToLon !== undefined ? (
       <FlyTo
-        lat={props.userLat}
-        lon={props.userLon}
+        lat={props.flyToLat}
+        lon={props.flyToLon}
         zoom={15}
-        seq={props.userLocateSeq}
+        seq={props.flyToSeq}
       />
     ) : null;
 
@@ -396,7 +417,7 @@ export function TransitMap(props: {
       />
       <SmoothWheelZoom />
       <ViewportReporter onViewportChange={onViewportChange} />
-      {flyUser}
+      {flyTarget}
       {props.userLat !== undefined && props.userLon !== undefined ? (
         <Marker
           position={[props.userLat, props.userLon]}

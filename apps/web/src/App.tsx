@@ -59,6 +59,8 @@ export default function App() {
   >();
   const [userLat, setUserLat] = useState<number>();
   const [userLon, setUserLon] = useState<number>();
+  const [flyToLat, setFlyToLat] = useState<number>();
+  const [flyToLon, setFlyToLon] = useState<number>();
   const [selected, setSelected] = useState<StopSummary | null>(null);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
@@ -81,125 +83,96 @@ export default function App() {
     });
   }, [agenciesQuery.data]);
 
-  const locate = async (opts?: { silent?: boolean; forcePrompt?: boolean }) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      if (!opts?.silent) setLocateError("Location is not supported on this device.");
-      return;
+  const applyPosition = (pos: GeolocationPosition) => {
+    setUserLat(pos.coords.latitude);
+    setUserLon(pos.coords.longitude);
+    setFlyToLat(pos.coords.latitude);
+    setFlyToLon(pos.coords.longitude);
+    setLocateError(null);
+    setUserLocateSeq((s) => s + 1);
+  };
+
+  const getPermissionState = async (): Promise<GeoPermissionState> => {
+    if (!("permissions" in navigator) || !navigator.permissions?.query) {
+      return "unknown";
     }
-    setLocating(true);
-    if (!opts?.silent) setLocateError(null);
-    const getPermissionState = async (): Promise<GeoPermissionState> => {
-      if (!("permissions" in navigator) || !navigator.permissions?.query) {
-        return "unknown";
-      }
-      try {
-        const status = await navigator.permissions.query({
-          name: "geolocation" as PermissionName,
-        });
-        return status.state;
-      } catch {
-        return "unknown";
-      }
-    };
-    const getPos = (o: PositionOptions) =>
-      new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, o)
-      );
-    const withOverallTimeout = async <T,>(p: Promise<T>, ms: number): Promise<T> => {
-      let id: ReturnType<typeof setTimeout>;
-      const timeout = new Promise<never>((_, rej) => {
-        id = setTimeout(() => rej(new Error("LOCATE_OVERALL_TIMEOUT")), ms);
-      });
-      try {
-        return await Promise.race([p, timeout]);
-      } finally {
-        clearTimeout(id!);
-      }
-    };
     try {
-      await withOverallTimeout(
-        (async () => {
-          try {
-            const pos = await getPos({
-              enableHighAccuracy: true,
-              maximumAge: 30_000,
-              timeout: 12_000,
-            });
-            setUserLat(pos.coords.latitude);
-            setUserLon(pos.coords.longitude);
-            setLocateError(null);
-            setUserLocateSeq((s) => s + 1);
-            return;
-          } catch {
-            // Some mobile browsers fail high-accuracy requests. Retry with a relaxed request.
-          }
-          try {
-            const pos = await getPos({
-              enableHighAccuracy: false,
-              maximumAge: 5 * 60_000,
-              timeout: 20_000,
-            });
-            setUserLat(pos.coords.latitude);
-            setUserLon(pos.coords.longitude);
-            setLocateError(null);
-            setUserLocateSeq((s) => s + 1);
-          } catch (err) {
-            const denied = geolocationPermissionDenied(err);
-            if (denied && opts?.forcePrompt) {
-              const permission = await getPermissionState();
-              if (permission === "prompt" || permission === "unknown") {
-                try {
-                  const pos = await getPos({
-                    enableHighAccuracy: false,
-                    maximumAge: 0,
-                    timeout: 15_000,
-                  });
-                  setUserLat(pos.coords.latitude);
-                  setUserLon(pos.coords.longitude);
-                  setLocateError(null);
-                  setUserLocateSeq((s) => s + 1);
-                  return;
-                } catch {
-                  // fall through to user-facing error
-                }
-              }
-            }
-            if (!opts?.silent) {
-              const permission = denied ? await getPermissionState() : "unknown";
-              const timedOut = geolocationTimedOut(err);
-              let message: string;
-              if (denied) {
-                message =
-                  permission === "denied"
-                    ? "Location blocked in browser settings. Enable location for this site, then tap Locate again."
-                    : "Location permission needed. Tap Locate and choose Allow.";
-              } else if (timedOut) {
-                message =
-                  "Location timed out. Move to an open area, check GPS/Wi‑Fi, and try again.";
-              } else {
-                message = "Could not get your location. Try again.";
-              }
-              setLocateError(message);
-            }
-          }
-        })(),
-        28_000
-      );
-    } catch (e) {
-      if (!opts?.silent) {
-        setLocateError(
-          e instanceof Error && e.message === "LOCATE_OVERALL_TIMEOUT"
-            ? "Location is taking too long. Check permissions and try again."
-            : "Could not get your location. Try again."
-        );
-      }
-    } finally {
-      setLocating(false);
+      const status = await navigator.permissions.query({
+        name: "geolocation" as PermissionName,
+      });
+      return status.state;
+    } catch {
+      return "unknown";
     }
   };
 
+  const locate = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocateError("Location is not supported on this device.");
+      return;
+    }
+    setLocating(true);
+    setLocateError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        applyPosition(pos);
+        setLocating(false);
+      },
+      (err) => {
+        if (!geolocationPermissionDenied(err)) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              applyPosition(pos);
+              setLocating(false);
+            },
+            async (err2) => {
+              await showLocateError(err2);
+              setLocating(false);
+            },
+            { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 20_000 }
+          );
+          return;
+        }
+        void (async () => {
+          await showLocateError(err);
+          setLocating(false);
+        })();
+      },
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
+    );
+  };
+
+  const showLocateError = async (err: GeolocationPositionError) => {
+    const denied = geolocationPermissionDenied(err);
+    const timedOut = geolocationTimedOut(err);
+    let message: string;
+    if (denied) {
+      const permission = await getPermissionState();
+      message =
+        permission === "denied"
+          ? "Location blocked by browser. Tap the lock icon in the address bar, enable Location, then try again."
+          : "Location permission needed. Tap Locate and choose Allow.";
+    } else if (timedOut) {
+      message =
+        "Location timed out. Check GPS/Wi‑Fi and try again.";
+    } else {
+      message = "Could not get your location. Try again.";
+    }
+    setLocateError(message);
+  };
+
   useEffect(() => {
-    void locate({ silent: true });
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    void (async () => {
+      const permission = await getPermissionState();
+      if (permission !== "granted") return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => applyPosition(pos),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 }
+      );
+    })();
   }, []);
 
   return (
@@ -223,15 +196,17 @@ export default function App() {
           userLon={userLon}
           onPickStop={(s) => {
             setSelected(s);
-            setUserLat(s.lat);
-            setUserLon(s.lon);
+            setFlyToLat(s.lat);
+            setFlyToLon(s.lon);
           }}
         />
         <TransitMap
           agencyCenter={agencyCenter}
           userLat={userLat}
           userLon={userLon}
-          userLocateSeq={userLocateSeq}
+          flyToLat={flyToLat ?? userLat}
+          flyToLon={flyToLon ?? userLon}
+          flyToSeq={userLocateSeq}
           selectedStop={selected}
           onSelectStop={(s) => {
             setSelected(s);
@@ -239,9 +214,7 @@ export default function App() {
         />
         <button
           type="button"
-          onClick={() => {
-            void locate({ forcePrompt: true });
-          }}
+          onClick={locate}
           disabled={locating}
           title="Locate me"
           aria-label="Locate me"

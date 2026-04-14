@@ -2,6 +2,14 @@
   "buildCommand": "npm run build -w @onebus/shared && npm run build -w @onebus/web",
   "outputDirectory": "apps/web/dist",
   "framework": null,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Permissions-Policy", "value": "geolocation=(self)" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/((?!api).*)", "destination": "/index.html" }

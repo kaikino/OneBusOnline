@@ -49,6 +49,9 @@ export default defineConfig({
   ],
   server: {
     host: true,
+    headers: {
+      "Permissions-Policy": "geolocation=(self)",
+    },
     proxy: {
       "/api": {
         target: "http://localhost:3001",

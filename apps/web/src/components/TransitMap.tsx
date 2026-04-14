@@ -145,7 +145,16 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
   const stops = useStops(viewport);
 
   return (
-    <MapContainer ref={ref} center={SEATTLE} zoom={13} zoomControl={false} className="h-full w-full">
+    <MapContainer
+      ref={ref}
+      center={SEATTLE}
+      zoom={13}
+      minZoom={3}
+      maxZoom={19}
+      zoomSnap={0}
+      zoomControl={false}
+      className="h-full w-full"
+    >
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} />
       <ViewportReporter onChange={setViewport} />

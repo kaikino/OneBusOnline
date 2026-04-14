@@ -1,0 +1,19 @@
+{
+  "name": "onebusonline",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @onebus/shared && npm run build -w @onebus/server && npm run build -w @onebus/web",
+    "dev": "npm run build -w @onebus/shared && concurrently -n server,web -c blue,green \"npm run dev -w @onebus/server\" \"npm run dev -w @onebus/web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

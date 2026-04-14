@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.leaflet-container {
+  font-family: inherit;
+}
+
+.marker {
+  --color: #2563eb;
+  --border: #fff;
+  --dot-inset: 3px;
+}
+.marker-dot {
+  position: absolute;
+  inset: var(--dot-inset);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--color);
+}
+
+.marker-stop.marker-selected {
+  --color: #dc2626;
+}
+
+.marker-user {
+  border: 2.5px solid #fff;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgb(34 197 94 / 0.5);
+}

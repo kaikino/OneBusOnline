@@ -1,35 +1,7 @@
-import cors from "cors";
-import express, { type ErrorRequestHandler } from "express";
-import { ZodError } from "zod";
+import app from "./app.js";
 import { closeCache } from "./cache.js";
-import { obaConfigured } from "./oba.js";
-import { routes } from "./routes.js";
-
-if (!obaConfigured) {
-  console.warn("ONEBUSAWAY_API_KEY not set: only health and cached stops are available");
-}
 
 const port = Number(process.env.PORT ?? 3001);
-const corsOrigins = (process.env.CORS_ORIGIN ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
-  if (err instanceof ZodError) {
-    res.status(400).json({ error: err.flatten() });
-    return;
-  }
-  console.error(err);
-  res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-};
-
-const app = express();
-app.use(
-  cors({ origin: corsOrigins.length > 0 ? corsOrigins : process.env.NODE_ENV !== "production" }),
-);
-app.use("/api/v1", routes);
-app.use(handleError);
 
 const server = app.listen(port, () => {
   console.log(`OneBusOnline API listening on http://localhost:${port}`);

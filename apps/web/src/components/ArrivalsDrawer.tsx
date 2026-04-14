@@ -1,6 +1,6 @@
 import type { Arrival, ArrivalsResponse, Stop } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Bus, RefreshCw, X } from "lucide-react";
+import { Bus, RefreshCw } from "lucide-react";
 import {
   type PointerEvent,
   type ReactNode,
@@ -18,6 +18,8 @@ import { useOnline } from "../hooks/useOnline";
 export const SHEET_PREVIEW_HEIGHT = 132;
 
 const FLICK_VELOCITY = 0.4;
+const CLOSE_VELOCITY = 0.6;
+const CLOSE_DISTANCE_PX = 88;
 const VELOCITY_WINDOW_MS = 100;
 
 const MINUTES_AFTER = 120;
@@ -89,12 +91,13 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
-export type SheetSnap = "expanded" | "preview";
+export type SheetSnap = "expanded" | "preview" | "closed";
 
 interface Gesture {
   startY: number;
   startOffset: number;
   previewOffset: number;
+  maxOffset: number;
   samples: { y: number; time: number }[];
 }
 
@@ -114,7 +117,7 @@ function useSheetDrag(options: {
 
   /** Px below the expanded position. */
   const offsetAt = (g: Gesture, clientY: number) =>
-    Math.min(g.previewOffset, Math.max(0, g.startOffset + clientY - g.startY));
+    Math.min(g.maxOffset, Math.max(0, g.startOffset + clientY - g.startY));
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     const sheet = sheetRef.current;
@@ -128,6 +131,7 @@ function useSheetDrag(options: {
       startY: e.clientY,
       startOffset,
       previewOffset,
+      maxOffset: sheet.offsetHeight,
       samples: [{ y: e.clientY, time: e.timeStamp }],
     };
     setDrag({ offset: startOffset, raised: expanded });
@@ -151,9 +155,13 @@ function useSheetDrag(options: {
     const oldest = g.samples[0];
     const elapsed = e.timeStamp - oldest.time;
     const velocity = elapsed > 0 ? (e.clientY - oldest.y) / elapsed : 0;
+    const offset = offsetAt(g, e.clientY);
+    const fromPreview = g.startOffset === g.previewOffset;
+    const pastCloseDistance = offset > g.previewOffset + CLOSE_DISTANCE_PX;
     if (velocity < -FLICK_VELOCITY) onSnap("expanded");
+    else if (fromPreview && (velocity > CLOSE_VELOCITY || pastCloseDistance)) onSnap("closed");
     else if (velocity > FLICK_VELOCITY) onSnap("preview");
-    else onSnap(offsetAt(g, e.clientY) < g.previewOffset / 2 ? "expanded" : "preview");
+    else onSnap(offset < g.previewOffset / 2 ? "expanded" : "preview");
   };
 
   const onPointerCancel = () => {
@@ -267,10 +275,9 @@ interface Props {
   stop: Stop | null;
   expanded: boolean;
   onSnap: (snap: SheetSnap) => void;
-  onClose: () => void;
 }
 
-export function ArrivalsDrawer({ stop, expanded, onSnap, onClose }: Props) {
+export function ArrivalsDrawer({ stop, expanded, onSnap }: Props) {
   const now = useNow(5000);
   const online = useOnline();
   const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
@@ -300,25 +307,15 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, onClose }: Props) {
           <Bus className="h-5 w-5 shrink-0 text-sky-400" aria-hidden />
           <span className="truncate">{shownStop?.name}</span>
         </h2>
-        <div className="flex shrink-0 gap-1 text-slate-400">
-          <button
-            type="button"
-            onClick={refresh}
-            disabled={isFetching}
-            aria-label="Refresh arrivals"
-            className="rounded-md p-1 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1 transition hover:bg-slate-800 hover:text-slate-200"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={isFetching}
+          aria-label="Refresh arrivals"
+          className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
+        </button>
       </div>
       {expanded && shownStop?.code && (
         <p className="mt-1 text-sm text-slate-400">Code {shownStop.code}</p>

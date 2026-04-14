@@ -2,7 +2,11 @@ import type { LatLon, Stop } from "@onebus/shared";
 import type { Map as LeafletMap } from "leaflet";
 import { Crosshair, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrivalsDrawer, SHEET_PREVIEW_HEIGHT } from "./components/ArrivalsDrawer";
+import {
+  ArrivalsDrawer,
+  SHEET_PREVIEW_HEIGHT,
+  type SheetSnap,
+} from "./components/ArrivalsDrawer";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 import { useOnline } from "./hooks/useOnline";
@@ -129,6 +133,11 @@ export default function App() {
     setDrawerExpanded(false);
   };
 
+  const snapDrawer = (snap: SheetSnap) => {
+    if (snap === "closed") selectStop(null);
+    else setDrawerExpanded(snap === "expanded");
+  };
+
   const floatingBottom = (gap: number) =>
     `calc(env(safe-area-inset-bottom, 0px) + ${(stop ? SHEET_PREVIEW_HEIGHT : 0) + gap}px)`;
 
@@ -188,8 +197,7 @@ export default function App() {
       <ArrivalsDrawer
         stop={stop}
         expanded={drawerExpanded}
-        onSnap={(snap) => setDrawerExpanded(snap === "expanded")}
-        onClose={() => selectStop(null)}
+        onSnap={snapDrawer}
       />
     </div>
   );

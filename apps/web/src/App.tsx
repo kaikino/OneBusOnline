@@ -1,25 +1,13 @@
 import type { LatLon, Stop } from "@onebus/shared";
 import type { Map as LeafletMap } from "leaflet";
 import { Crosshair, WifiOff } from "lucide-react";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState } from "react";
 import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
+import { useOnline } from "./hooks/useOnline";
 
 const FOCUS_ZOOM = 15;
-
-function subscribeToConnectivity(onChange: () => void) {
-  window.addEventListener("online", onChange);
-  window.addEventListener("offline", onChange);
-  return () => {
-    window.removeEventListener("online", onChange);
-    window.removeEventListener("offline", onChange);
-  };
-}
-
-function useOnline(): boolean {
-  return useSyncExternalStore(subscribeToConnectivity, () => navigator.onLine);
-}
 
 export default function App() {
   const online = useOnline();

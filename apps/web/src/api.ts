@@ -21,5 +21,5 @@ export const fetchStopsInBbox = (bbox: Bbox) => get<Stop[]>("/stops/bbox", { ...
 export const searchStops = (q: string, origin?: LatLon) =>
   get<Stop[]>("/stops/search", { q, ...origin });
 
-export const fetchArrivals = (stopId: string) =>
-  get<ArrivalsResponse>(`/stops/${encodeURIComponent(stopId)}/arrivals`);
+export const fetchArrivals = (stopId: string, minutesAfter: number) =>
+  get<ArrivalsResponse>(`/stops/${encodeURIComponent(stopId)}/arrivals`, { minutesAfter });

@@ -1,9 +1,68 @@
-import type { Stop } from "@onebus/shared";
+import type { ArrivalsResponse, Stop } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Bus, RefreshCw, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchArrivals } from "../api";
 import { PUNCTUALITY_COLOR, etaLabel, formatClock, punctualityLabel } from "../arrivalUi";
+import { useOnline } from "../hooks/useOnline";
+
+const MINUTES_AFTER = 120;
+const EXTEND_STEP_MINUTES = 120;
+
+const storageKey = (stopId: string) => `onebus:arrivals:${stopId}`;
+
+function loadSaved(stopId: string): ArrivalsResponse | undefined {
+  try {
+    const saved = localStorage.getItem(storageKey(stopId));
+    return saved ? JSON.parse(saved) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function save(response: ArrivalsResponse) {
+  try {
+    localStorage.setItem(storageKey(response.stopId), JSON.stringify(response));
+  } catch {
+    // Storage is full or unavailable; arrivals just won't be available offline.
+  }
+}
+
+/** Live arrivals for a stop, falling back to the last saved response when the network fails. */
+function useArrivals(stopId: string) {
+  const [minutesAfter, setMinutesAfter] = useState(MINUTES_AFTER);
+
+  const [windowStopId, setWindowStopId] = useState(stopId);
+  if (windowStopId !== stopId) {
+    setWindowStopId(stopId);
+    setMinutesAfter(MINUTES_AFTER);
+  }
+
+  const query = useQuery({
+    queryKey: ["arrivals", stopId, minutesAfter],
+    queryFn: () => fetchArrivals(stopId, minutesAfter),
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+    // Keeps the list in place while a longer window loads.
+    placeholderData: (previous) => (previous?.stopId === stopId ? previous : undefined),
+  });
+
+  useEffect(() => {
+    if (query.data && !query.isPlaceholderData) save(query.data);
+  }, [query.data, query.isPlaceholderData]);
+
+  const saved = useMemo(() => loadSaved(stopId), [stopId]);
+
+  return {
+    arrivals: (query.data ?? saved)?.arrivals ?? [],
+    isLoading: query.isPending,
+    isFetching: query.isFetching,
+    isFailing: query.failureCount > 0,
+    minutesAfter,
+    refresh: () => void query.refetch(),
+    extend: () => setMinutesAfter((minutes) => minutes + EXTEND_STEP_MINUTES),
+  };
+}
 
 /** The current time, refreshed every `intervalMs`. */
 function useNow(intervalMs: number): number {
@@ -17,18 +76,22 @@ function useNow(intervalMs: number): number {
 
 export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => void }) {
   const now = useNow(5000);
-  const { data, isPending, isError, isFetching, refetch } = useQuery({
-    queryKey: ["arrivals", stop.id],
-    queryFn: () => fetchArrivals(stop.id),
-    staleTime: 15_000,
-    refetchInterval: 20_000,
-  });
-  const arrivals = data?.arrivals ?? [];
+  const online = useOnline();
+  const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
+    useArrivals(stop.id);
 
   let notice: string | null = null;
-  if (isError) notice = "Failed to fetch arrivals.";
-  else if (isPending) notice = "Loading…";
-  else if (arrivals.length === 0) notice = "No upcoming arrivals.";
+  if (arrivals.length > 0) {
+    if (isFailing) {
+      notice = online
+        ? "Server unreachable — arrivals may be outdated."
+        : "Offline — showing last saved arrivals for this stop.";
+    }
+  } else if (isFailing) {
+    notice = online ? "Failed to fetch arrivals." : "You are offline with no saved arrivals.";
+  } else {
+    notice = isLoading ? "Loading…" : "No upcoming arrivals.";
+  }
 
   return (
     <section className="fixed inset-x-0 bottom-0 z-[2001] flex max-h-[60dvh] flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] pt-3">
@@ -40,7 +103,7 @@ export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => v
         <div className="flex shrink-0 gap-1 text-slate-400">
           <button
             type="button"
-            onClick={() => void refetch()}
+            onClick={refresh}
             disabled={isFetching}
             aria-label="Refresh arrivals"
             className="rounded-md p-1 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
@@ -84,6 +147,16 @@ export function ArrivalsDrawer({ stop, onClose }: { stop: Stop; onClose: () => v
             </li>
           ))}
         </ul>
+        <button
+          type="button"
+          disabled={isFetching || !online}
+          onClick={extend}
+          className="mt-3 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:border-sky-600 hover:bg-slate-800 disabled:opacity-50"
+        >
+          {isFetching
+            ? "Loading…"
+            : `Show more arrivals (next ${(minutesAfter + EXTEND_STEP_MINUTES) / 60} hours)`}
+        </button>
       </div>
     </section>
   );

@@ -16,8 +16,6 @@ const TTL_SEC = { stops: 600, arrivals: 25 };
 const MAX_CALLS_PER_BBOX = 36;
 const MIN_SPLIT_SPAN_DEG = 2e-4;
 
-const ARRIVALS_MINUTES_AFTER = 120;
-
 const SEARCH_MAX_RESULTS = 30;
 const SEARCH_RADIUS_M = 50_000;
 const DEFAULT_SEARCH_ORIGIN: LatLon = { lat: 47.6062, lon: -122.3321 };
@@ -104,10 +102,10 @@ async function searchByCode(code: string, origin = DEFAULT_SEARCH_ORIGIN): Promi
   return data.list.map(toStop);
 }
 
-export function arrivalsForStop(stopId: string): Promise<ArrivalsResponse> {
-  return cached(`arrivals:${stopId}`, TTL_SEC.arrivals, async () => {
+export function arrivalsForStop(stopId: string, minutesAfter: number): Promise<ArrivalsResponse> {
+  return cached(`arrivals:${stopId}:${minutesAfter}`, TTL_SEC.arrivals, async () => {
     const { data } = await client.arrivalAndDeparture.list(stopId, {
-      minutesAfter: ARRIVALS_MINUTES_AFTER,
+      minutesAfter,
       minutesBefore: 0,
     });
     const arrivals = data.entry.arrivalsAndDepartures

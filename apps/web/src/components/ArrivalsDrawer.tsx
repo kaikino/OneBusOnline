@@ -43,6 +43,15 @@ function releaseSwitchY(): number {
   return previewRestY() / 2;
 }
 
+/**
+ * Additional close threshold for preview mode.
+ * If the panel is being dragged from preview and released below this line,
+ * we close the drawer instead of snapping back to preview.
+ */
+function previewCloseY(): number {
+  return Math.min(expandedHeightPx(), previewRestY() + 88);
+}
+
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   return Boolean(
@@ -234,6 +243,7 @@ export function ArrivalsDrawer(props: {
 
     const finalTranslate = dragBaseTranslateRef.current + (clientY - dragStartYRef.current);
     const clamped = Math.max(-40, Math.min(expandedHeightPx(), finalTranslate));
+    const startedFromPreview = dragBaseTranslateRef.current >= previewRestY() - 1;
 
     let targetExpanded: boolean;
     if (velocity > VELOCITY_THRESHOLD) {
@@ -242,6 +252,15 @@ export function ArrivalsDrawer(props: {
       targetExpanded = true;
     } else {
       targetExpanded = clamped < releaseSwitchY();
+    }
+
+    // Preview-only close gesture: release well below preview rest.
+    if (!targetExpanded && startedFromPreview && clamped >= previewCloseY()) {
+      pointerHistoryRef.current = [];
+      draggingRef.current = false;
+      setDragging(false);
+      props.onOpenChange(false);
+      return;
     }
 
     expandedRef.current = targetExpanded;

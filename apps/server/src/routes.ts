@@ -40,6 +40,11 @@ const searchQuery = z.object({
   lon: z.coerce.number().optional(),
 });
 
+const arrivalsQuery = z.object({
+  minutesAfter: z.coerce.number().int().min(1).optional(),
+  minutesBefore: z.coerce.number().int().min(0).max(120).optional(),
+});
+
 export function apiRoutes(service: ObaService): Router {
   const r = Router();
 
@@ -128,15 +133,14 @@ export function apiRoutes(service: ObaService): Router {
       res.status(400).json({ error: "Missing stop id" });
       return;
     }
-    const minutesAfter = req.query.minutesAfter
-      ? Number(req.query.minutesAfter)
-      : undefined;
-    const minutesBefore = req.query.minutesBefore
-      ? Number(req.query.minutesBefore)
-      : undefined;
+    const parsed = arrivalsQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
     const data = await service.arrivalsForStop(stopId, {
-      minutesAfter,
-      minutesBefore,
+      minutesAfter: parsed.data.minutesAfter,
+      minutesBefore: parsed.data.minutesBefore,
     });
     res.setHeader("Cache-Control", "public, max-age=15");
     res.json(data);

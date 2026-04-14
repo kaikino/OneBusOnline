@@ -73,17 +73,63 @@ export function fetchStopsSearch(
   return getJson(`/api/v1/stops/search?${sp}`);
 }
 
-export function fetchArrivals(stopId: string): Promise<ArrivalsForStopResponse> {
-  return getJson(`/api/v1/stops/${encodeURIComponent(stopId)}/arrivals`);
+/**
+ * How far ahead / behind to ask OBA for arrivals (baked at build time from Vite env).
+ * Wider `minutesAfter` surfaces more routes with later trips.
+ */
+export const ARRIVALS_QUERY_WINDOW = (() => {
+  const rawA = import.meta.env.VITE_ARRIVALS_MINUTES_AFTER as string | undefined;
+  const rawB = import.meta.env.VITE_ARRIVALS_MINUTES_BEFORE as string | undefined;
+  const after =
+    rawA !== undefined && rawA !== "" ? Number(rawA) : 120;
+  const before =
+    rawB !== undefined && rawB !== "" ? Number(rawB) : 15;
+  return {
+    minutesAfter: Math.max(1, Number.isFinite(after) ? Math.floor(after) : 120),
+    minutesBefore: Math.min(120, Math.max(0, Number.isFinite(before) ? Math.floor(before) : 15)),
+  };
+})();
+
+/** Extra “minutes after now” added each time the user extends the arrivals horizon. */
+export const ARRIVALS_EXTEND_STEP_MIN = (() => {
+  const raw = import.meta.env.VITE_ARRIVALS_EXTEND_STEP_MIN as string | undefined;
+  const n = raw !== undefined && raw !== "" ? Number(raw) : 120;
+  return Math.min(360, Math.max(15, Number.isFinite(n) ? Math.floor(n) : 120));
+})();
+
+export function arrivalsLocalStorageKey(
+  stopId: string,
+  minutesAfter: number,
+  minutesBefore: number
+): string {
+  return `onebus:arrivals:${minutesAfter}_${minutesBefore}:${stopId}`;
 }
 
-const LS_ARR_PREFIX = "onebus:arrivals:";
+export function fetchArrivals(
+  stopId: string,
+  window?: { minutesAfter: number; minutesBefore?: number }
+): Promise<ArrivalsForStopResponse> {
+  const minutesBefore = window?.minutesBefore ?? ARRIVALS_QUERY_WINDOW.minutesBefore;
+  const minutesAfter =
+    window?.minutesAfter ?? ARRIVALS_QUERY_WINDOW.minutesAfter;
+  const sp = new URLSearchParams({
+    minutesAfter: String(minutesAfter),
+    minutesBefore: String(minutesBefore),
+  });
+  return getJson(
+    `/api/v1/stops/${encodeURIComponent(stopId)}/arrivals?${sp}`
+  );
+}
 
 export function loadCachedArrivals(
-  stopId: string
+  stopId: string,
+  minutesAfter: number = ARRIVALS_QUERY_WINDOW.minutesAfter,
+  minutesBefore: number = ARRIVALS_QUERY_WINDOW.minutesBefore
 ): ArrivalsForStopResponse | null {
   try {
-    const raw = localStorage.getItem(LS_ARR_PREFIX + stopId);
+    const raw = localStorage.getItem(
+      arrivalsLocalStorageKey(stopId, minutesAfter, minutesBefore)
+    );
     if (!raw) return null;
     return JSON.parse(raw) as ArrivalsForStopResponse;
   } catch {
@@ -93,9 +139,14 @@ export function loadCachedArrivals(
 
 export function saveCachedArrivals(
   stopId: string,
-  data: ArrivalsForStopResponse
+  data: ArrivalsForStopResponse,
+  minutesAfter: number = ARRIVALS_QUERY_WINDOW.minutesAfter,
+  minutesBefore: number = ARRIVALS_QUERY_WINDOW.minutesBefore
 ): void {
   try {
-    localStorage.setItem(LS_ARR_PREFIX + stopId, JSON.stringify(data));
+    localStorage.setItem(
+      arrivalsLocalStorageKey(stopId, minutesAfter, minutesBefore),
+      JSON.stringify(data)
+    );
   } catch {}
 }

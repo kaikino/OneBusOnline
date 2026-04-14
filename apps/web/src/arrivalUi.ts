@@ -16,7 +16,7 @@ export function punctualityClasses(p: ArrivalPunctuality): string {
     case "on_time":
       return "text-emerald-600";
     case "early":
-      return "text-sky-600";
+      return "text-orange-500";
     case "late":
       return "text-red-600";
     default:

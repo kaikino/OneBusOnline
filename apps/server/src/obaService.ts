@@ -23,6 +23,18 @@ import {
 const stopsMetaTtl = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
 const arrivalsTtl = Number(process.env.CACHE_ARRIVALS_TTL_SEC ?? 25);
 
+/** OBA “minutes after now” window; larger = more upcoming trips / routes (default 120). */
+const arrivalsDefaultAfter = (() => {
+  const n = Number(process.env.ARRIVALS_MINUTES_AFTER_DEFAULT ?? 120);
+  return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 120;
+})();
+
+/** Minutes into the past to include (default 15). */
+const arrivalsDefaultBefore = (() => {
+  const n = Number(process.env.ARRIVALS_MINUTES_BEFORE_DEFAULT ?? 15);
+  return Number.isFinite(n) ? Math.min(120, Math.max(0, Math.floor(n))) : 15;
+})();
+
 const arrivalsCache = new NodeCache({ stdTTL: arrivalsTtl, checkperiod: 10 });
 const agenciesCache = new NodeCache({ stdTTL: stopsMetaTtl, checkperiod: 60 });
 
@@ -283,12 +295,14 @@ export class ObaService {
     stopId: string,
     q?: { minutesAfter?: number; minutesBefore?: number }
   ): Promise<ArrivalsForStopResponse> {
-    const key = `arr:${stopId}:${q?.minutesAfter ?? 35}:${q?.minutesBefore ?? 5}`;
+    const after = q?.minutesAfter ?? arrivalsDefaultAfter;
+    const before = q?.minutesBefore ?? arrivalsDefaultBefore;
+    const key = `arr:${stopId}:${after}:${before}`;
     const cached = arrivalsCache.get<ArrivalsForStopResponse>(key);
     if (cached) return cached;
     const res = await this.client.arrivalAndDeparture.list(stopId, {
-      minutesAfter: q?.minutesAfter ?? 35,
-      minutesBefore: q?.minutesBefore ?? 5,
+      minutesAfter: after,
+      minutesBefore: before,
     });
     const entry = res.data?.entry;
     const list = entry?.arrivalsAndDepartures ?? [];

@@ -18,6 +18,8 @@
 | `PORT`                   | No                   | Listen port (default `3001`).                                                                                                         |
 | `CACHE_STOPS_TTL_SEC`    | No                   | Stop-list cache TTL in seconds (default `600`). Applies to Redis and in-memory backends.                                                 |
 | `CACHE_ARRIVALS_TTL_SEC` | No                   | Arrivals cache TTL in seconds (default `25`, in-process only).                                                                        |
+| `ARRIVALS_MINUTES_AFTER_DEFAULT` | No           | Default “minutes after now” for `/stops/:id/arrivals` when query omitted (default `120`, max `720`).                                   |
+| `ARRIVALS_MINUTES_BEFORE_DEFAULT` | No        | Default “minutes before now” when query omitted (default `15`, max `120`).                                                             |
 | `REDIS_URL`              | No                   | If set, stop lists (near / bbox / search) are cached in Redis and survive API restarts. Omit to use in-memory cache only.              |
 
 
@@ -27,6 +29,8 @@
 | Variable            | Required         | Description                                                                                                                                             |
 | ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VITE_API_BASE_URL` | Yes (production) | Public base URL of the API **without** a trailing slash, e.g. `https://api.example.com`. Leave empty locally so `/api` is proxied during `npm run dev`. |
+| `VITE_ARRIVALS_MINUTES_AFTER` | No | Arrivals window “after now” sent by the SPA (default `120`, max `720`). Larger shows more future trips. |
+| `VITE_ARRIVALS_MINUTES_BEFORE` | No | Arrivals window “before now” (default `15`, max `120`). |
 
 
 Set `VITE_`* at **build time** (they are baked into the client bundle).

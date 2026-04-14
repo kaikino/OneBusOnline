@@ -3,8 +3,8 @@
 A mobile-first PWA for [OneBusAway](https://onebusaway.org/) transit data: stops on a map and real-time arrivals.
 
 - `apps/web`: React, Vite, Leaflet, TanStack Query, Tailwind.
-- `apps/server`: Express API that holds the OneBusAway key, normalizes responses and caches them.
-- `packages/shared`: types used by both.
+- `apps/server`: Express API that holds the OneBusAway key, normalizes responses and caches them in Redis.
+- `packages/shared`: types and bounding-box helpers used by both.
 
 ## Development
 

@@ -1,9 +1,16 @@
-import { type Bbox, type LatLon, type Stop, bboxContainsPoint } from "@onebus/shared";
+import {
+  type Bbox,
+  type LatLon,
+  type Stop,
+  bboxContains,
+  bboxContainsPoint,
+  quantizeBbox,
+} from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type Map as LeafletMap, divIcon } from "leaflet";
 import { type Ref, useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, ZoomControl, useMapEvents } from "react-leaflet";
-import { fetchStopsInBbox } from "../api";
+import { fetchStopsInBbox, fetchStopsSnapshot } from "../api";
 import { loadSavedStops, saveStops } from "../stopsPersistence";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
@@ -31,11 +38,12 @@ interface Viewport {
 }
 
 /**
- * Accumulates every stop seen so far (saved locally or fetched for a viewport)
- * and returns the ones inside `viewport`.
+ * Accumulates every stop seen so far (saved locally, cached on the server, or
+ * fetched for a viewport) and returns the ones inside `viewport`.
  */
 function useStops(viewport: Viewport | null): Stop[] {
   const [stops, setStops] = useState<ReadonlyMap<string, Stop>>(new Map());
+  const [fetchedBbox, setFetchedBbox] = useState<Bbox | null>(null);
 
   const merge = useCallback((incoming: Stop[]) => {
     if (incoming.length === 0) return;
@@ -48,6 +56,7 @@ function useStops(viewport: Viewport | null): Stop[] {
 
   useEffect(() => {
     void loadSavedStops().then(merge);
+    fetchStopsSnapshot().then(merge, () => {});
   }, [merge]);
 
   useEffect(() => {
@@ -56,17 +65,20 @@ function useStops(viewport: Viewport | null): Stop[] {
     return () => clearTimeout(id);
   }, [stops]);
 
-  const bbox = viewport && viewport.zoom >= MIN_FETCH_ZOOM ? viewport.bbox : null;
+  const bbox = viewport && viewport.zoom >= MIN_FETCH_ZOOM ? quantizeBbox(viewport.bbox) : null;
+  const alreadyFetched = bbox !== null && fetchedBbox !== null && bboxContains(fetchedBbox, bbox);
 
   const { data: fetched } = useQuery({
     queryKey: ["stops", bbox],
-    queryFn: () => fetchStopsInBbox(bbox!),
-    enabled: bbox !== null,
+    queryFn: async () => ({ bbox: bbox!, stops: await fetchStopsInBbox(bbox!) }),
+    enabled: bbox !== null && !alreadyFetched,
     staleTime: 5 * 60_000,
   });
 
   useEffect(() => {
-    if (fetched) merge(fetched);
+    if (!fetched) return;
+    merge(fetched.stops);
+    setFetchedBbox(fetched.bbox);
   }, [fetched, merge]);
 
   return useMemo(() => {

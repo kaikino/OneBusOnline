@@ -4,6 +4,7 @@ import {
   type LatLon,
   type Stop,
   bboxContainsPoint,
+  quantizeBbox,
 } from "@onebus/shared";
 import OnebusawaySDK, { NotFoundError } from "onebusaway-sdk";
 import { cached } from "./cache.js";
@@ -33,9 +34,10 @@ const client = new OnebusawaySDK({
 });
 
 export function stopsInBbox(bbox: Bbox): Promise<Stop[]> {
-  const key = `stops:${bbox.minLat}:${bbox.minLon}:${bbox.maxLat}:${bbox.maxLon}`;
+  const q = quantizeBbox(bbox);
+  const key = `stops:${q.minLat}:${q.minLon}:${q.maxLat}:${q.maxLon}`;
   return cached(key, TTL_SEC.stops, async () => {
-    const stops = await fetchStops(bbox, { callsLeft: MAX_CALLS_PER_BBOX });
+    const stops = await fetchStops(q, { callsLeft: MAX_CALLS_PER_BBOX });
     return [...new Map(stops.map((stop) => [stop.id, stop])).values()];
   });
 }

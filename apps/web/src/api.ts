@@ -14,6 +14,8 @@ async function get<T>(path: string, params: Params = {}): Promise<T> {
   return res.json();
 }
 
+export const fetchStopsSnapshot = () => get<Stop[]>("/stops/snapshot");
+
 export const fetchStopsInBbox = (bbox: Bbox) => get<Stop[]>("/stops/bbox", { ...bbox });
 
 export const searchStops = (q: string, origin?: LatLon) =>

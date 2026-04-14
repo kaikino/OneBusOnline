@@ -1,11 +1,12 @@
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
+import { closeCache } from "./cache.js";
 import { obaConfigured } from "./oba.js";
 import { routes } from "./routes.js";
 
 if (!obaConfigured) {
-  console.warn("ONEBUSAWAY_API_KEY not set: only the health check is available");
+  console.warn("ONEBUSAWAY_API_KEY not set: only health and cached stops are available");
 }
 
 const port = Number(process.env.PORT ?? 3001);
@@ -30,6 +31,15 @@ app.use(
 app.use("/api/v1", routes);
 app.use(handleError);
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`OneBusOnline API listening on http://localhost:${port}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    server.close(async () => {
+      await closeCache();
+      process.exit(0);
+    });
+  });
+}

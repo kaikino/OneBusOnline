@@ -1,5 +1,6 @@
 import { type RequestHandler, Router } from "express";
 import { z } from "zod";
+import { cacheEnabled, cachedStops } from "./cache.js";
 import { arrivalsForStop, obaConfigured, searchStops, stopsInBbox } from "./oba.js";
 
 const bboxQuery = z
@@ -26,7 +27,12 @@ export const routes = Router();
 
 routes.get("/health", (_req, res) => {
   res.set("Cache-Control", "no-store");
-  res.json({ ok: true, obaConfigured });
+  res.json({ ok: true, obaConfigured, cacheEnabled });
+});
+
+routes.get("/stops/snapshot", async (_req, res) => {
+  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+  res.json(await cachedStops());
 });
 
 routes.use(requireOba);

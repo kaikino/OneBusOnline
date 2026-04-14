@@ -12,4 +12,5 @@ Serve `apps/web/dist` from the same origin with `/api` routed to the server. To 
 | -------------------- | ----------- | ---------------------------------------------------------------- |
 | `ONEBUSAWAY_API_KEY` | Yes         | OneBusAway application key.                                      |
 | `OBA_BASE_URL`       | Recommended | Regional API host, e.g. `https://api.pugetsound.onebusaway.org`. |
+| `REDIS_URL`          | Recommended | Redis connection string. Without it every request hits OBA.      |
 | `PORT`               | No          | API port, default `3001`.                                        |

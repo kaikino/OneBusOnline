@@ -3,10 +3,27 @@ import { Crosshair, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchAgencyCoverage } from "./api";
-import { PUNCTUALITY_DOC } from "./arrivalUi";
 import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
+
+type GeoPermissionState = PermissionState | "unknown";
+
+/** Safari / some WebKit builds surface denial as DOMException instead of GeolocationPositionError. */
+function geolocationPermissionDenied(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as GeolocationPositionError & { name?: string };
+  if ("code" in e && typeof e.code === "number" && e.code === 1) return true;
+  const name = "name" in e && typeof e.name === "string" ? e.name : "";
+  return name === "NotAllowedError" || name === "PermissionDeniedError";
+}
+
+function geolocationTimedOut(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as GeolocationPositionError & { name?: string };
+  if ("code" in e && typeof e.code === "number" && e.code === 3) return true;
+  return e.name === "TimeoutError";
+}
 
 function useTickMs(interval = 1000): number {
   const [t, setT] = useState(() => Date.now());
@@ -43,6 +60,9 @@ export default function App() {
   const [userLat, setUserLat] = useState<number>();
   const [userLon, setUserLon] = useState<number>();
   const [selected, setSelected] = useState<StopSummary | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
+  const [userLocateSeq, setUserLocateSeq] = useState(0);
 
   const agenciesQuery = useQuery({
     queryKey: ["agencies", "coverage"],
@@ -61,20 +81,125 @@ export default function App() {
     });
   }, [agenciesQuery.data]);
 
-  const locate = () => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setUserLat(pos.coords.latitude);
-        setUserLon(pos.coords.longitude);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 15_000 }
-    );
+  const locate = async (opts?: { silent?: boolean; forcePrompt?: boolean }) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      if (!opts?.silent) setLocateError("Location is not supported on this device.");
+      return;
+    }
+    setLocating(true);
+    if (!opts?.silent) setLocateError(null);
+    const getPermissionState = async (): Promise<GeoPermissionState> => {
+      if (!("permissions" in navigator) || !navigator.permissions?.query) {
+        return "unknown";
+      }
+      try {
+        const status = await navigator.permissions.query({
+          name: "geolocation" as PermissionName,
+        });
+        return status.state;
+      } catch {
+        return "unknown";
+      }
+    };
+    const getPos = (o: PositionOptions) =>
+      new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, o)
+      );
+    const withOverallTimeout = async <T,>(p: Promise<T>, ms: number): Promise<T> => {
+      let id: ReturnType<typeof setTimeout>;
+      const timeout = new Promise<never>((_, rej) => {
+        id = setTimeout(() => rej(new Error("LOCATE_OVERALL_TIMEOUT")), ms);
+      });
+      try {
+        return await Promise.race([p, timeout]);
+      } finally {
+        clearTimeout(id!);
+      }
+    };
+    try {
+      await withOverallTimeout(
+        (async () => {
+          try {
+            const pos = await getPos({
+              enableHighAccuracy: true,
+              maximumAge: 30_000,
+              timeout: 12_000,
+            });
+            setUserLat(pos.coords.latitude);
+            setUserLon(pos.coords.longitude);
+            setLocateError(null);
+            setUserLocateSeq((s) => s + 1);
+            return;
+          } catch {
+            // Some mobile browsers fail high-accuracy requests. Retry with a relaxed request.
+          }
+          try {
+            const pos = await getPos({
+              enableHighAccuracy: false,
+              maximumAge: 5 * 60_000,
+              timeout: 20_000,
+            });
+            setUserLat(pos.coords.latitude);
+            setUserLon(pos.coords.longitude);
+            setLocateError(null);
+            setUserLocateSeq((s) => s + 1);
+          } catch (err) {
+            const denied = geolocationPermissionDenied(err);
+            if (denied && opts?.forcePrompt) {
+              const permission = await getPermissionState();
+              if (permission === "prompt" || permission === "unknown") {
+                try {
+                  const pos = await getPos({
+                    enableHighAccuracy: false,
+                    maximumAge: 0,
+                    timeout: 15_000,
+                  });
+                  setUserLat(pos.coords.latitude);
+                  setUserLon(pos.coords.longitude);
+                  setLocateError(null);
+                  setUserLocateSeq((s) => s + 1);
+                  return;
+                } catch {
+                  // fall through to user-facing error
+                }
+              }
+            }
+            if (!opts?.silent) {
+              const permission = denied ? await getPermissionState() : "unknown";
+              const timedOut = geolocationTimedOut(err);
+              let message: string;
+              if (denied) {
+                message =
+                  permission === "denied"
+                    ? "Location blocked in browser settings. Enable location for this site, then tap Locate again."
+                    : "Location permission needed. Tap Locate and choose Allow.";
+              } else if (timedOut) {
+                message =
+                  "Location timed out. Move to an open area, check GPS/Wi‑Fi, and try again.";
+              } else {
+                message = "Could not get your location. Try again.";
+              }
+              setLocateError(message);
+            }
+          }
+        })(),
+        28_000
+      );
+    } catch (e) {
+      if (!opts?.silent) {
+        setLocateError(
+          e instanceof Error && e.message === "LOCATE_OVERALL_TIMEOUT"
+            ? "Location is taking too long. Check permissions and try again."
+            : "Could not get your location. Try again."
+        );
+      }
+    } finally {
+      setLocating(false);
+    }
   };
 
   useEffect(() => {
-    locate();
+    void locate({ silent: true });
   }, []);
 
   return (
@@ -91,14 +216,6 @@ export default function App() {
             OneBusOnline
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={locate}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
-        >
-          <Crosshair className="h-4 w-4" aria-hidden />
-          <span className="hidden sm:inline">Locate</span>
-        </button>
       </header>
       <div className="relative min-h-0 flex-1">
         <SearchBar
@@ -114,11 +231,54 @@ export default function App() {
           agencyCenter={agencyCenter}
           userLat={userLat}
           userLon={userLon}
+          userLocateSeq={userLocateSeq}
           selectedStop={selected}
           onSelectStop={(s) => {
             setSelected(s);
           }}
         />
+        <button
+          type="button"
+          onClick={() => {
+            void locate({ forcePrompt: true });
+          }}
+          disabled={locating}
+          title="Locate me"
+          aria-label="Locate me"
+          style={{
+            bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
+              selected ? 168 : 16
+            }px)`,
+          }}
+          className="fixed right-4 z-[2000] inline-flex items-center justify-center rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          <Crosshair
+            className={`h-5 w-5 ${locating ? "animate-spin" : ""}`}
+            aria-hidden
+          />
+        </button>
+        {locateError ? (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
+                selected ? 224 : 72
+              }px)`,
+            }}
+            className="fixed right-4 z-[2000] flex max-w-[min(20rem,calc(100vw-2rem))] items-start gap-2 rounded-lg border border-amber-600 bg-amber-950/95 px-3 py-2 text-xs text-amber-100 shadow-xl"
+          >
+            <p className="min-w-0 flex-1 leading-snug">{locateError}</p>
+            <button
+              type="button"
+              onClick={() => setLocateError(null)}
+              className="shrink-0 rounded px-1.5 py-0.5 text-amber-300/90 hover:bg-amber-900 hover:text-amber-50"
+              aria-label="Dismiss location message"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
       </div>
       <ArrivalsDrawer
         stop={selected}

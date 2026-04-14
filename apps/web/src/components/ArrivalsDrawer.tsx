@@ -186,6 +186,14 @@ export function ArrivalsDrawer(props: {
   const hiddenCount = Math.max(0, rows.length - previewRows.length);
   const showStaleBanner = offline && query.isError && rows.length > 0;
 
+  const dataAgeMs = query.dataUpdatedAt ? props.nowMs - query.dataUpdatedAt : 0;
+  const serverUnreachable = !offline && query.failureCount > 0 && rows.length > 0;
+  const dataAgeLabel = dataAgeMs >= 120_000
+    ? `${Math.floor(dataAgeMs / 60_000)} min ago`
+    : dataAgeMs >= 60_000
+      ? "1 min ago"
+      : "";
+
   // --- Drag helpers ---
   const beginDrag = (clientY: number, timeStamp: number, pointerId: number, el: Element) => {
     dragStartYRef.current = clientY;
@@ -414,13 +422,21 @@ export function ArrivalsDrawer(props: {
             <p className="text-sm text-red-400">
               {offline
                 ? "You are offline with no saved arrivals for this stop yet."
-                : (query.error as Error).message}
+                : "Failed to fetch arrivals."}
             </p>
           ) : null}
           {showStaleBanner ? (
             <p className="mb-2 text-xs text-amber-400">
               Offline — showing last saved arrivals for this stop.
             </p>
+          ) : null}
+          {serverUnreachable ? (
+            <p className="mb-2 text-xs text-amber-400">
+              Server unreachable — arrivals may be outdated.{dataAgeLabel ? ` Last updated ${dataAgeLabel}.` : ""}
+            </p>
+          ) : null}
+          {rows.length === 0 && query.isPending ? (
+            <p className="text-sm text-slate-400">Loading…</p>
           ) : null}
           {rows.length === 0 && query.isSuccess ? (
             <p className="text-sm text-slate-500">No upcoming arrivals.</p>
@@ -457,7 +473,7 @@ export function ArrivalsDrawer(props: {
               </div>
               {hiddenCount > 0 ? (
                 <p className="mt-2 text-xs text-slate-500">
-                  +{hiddenCount} more — drag up for details
+                  +{hiddenCount} more
                 </p>
               ) : null}
             </>

@@ -2,11 +2,13 @@ import type { StopSummary } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import type L from "leaflet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import leaflet from "leaflet";
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   TileLayer,
-  Tooltip,
+  ZoomControl,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -21,6 +23,13 @@ import { loadPersistedStops, savePersistedStops } from "../stopsPersistence";
 
 const STOP_MARKER_RADIUS = 4.5;
 const VIEWPORT_DEBOUNCE_MS = 100;
+
+const USER_LOCATION_ICON = leaflet.divIcon({
+  className: "",
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+  html: '<div style="width:16px;height:16px;border-radius:50%;background:#0ea5e9;border:2.5px solid #fff;box-shadow:0 0 6px rgba(14,165,233,0.5);"></div>',
+});
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
 /** Below this zoom we do not request new bbox data; already-loaded stops still render. */
@@ -207,11 +216,11 @@ function SmoothWheelZoom() {
   return null;
 }
 
-function FlyTo(props: { lat: number; lon: number; zoom?: number }) {
+function FlyTo(props: { lat: number; lon: number; zoom?: number; seq?: number }) {
   const map = useMap();
   useEffect(() => {
     map.flyTo([props.lat, props.lon], props.zoom ?? 15, { duration: 1 });
-  }, [map, props.lat, props.lon, props.zoom]);
+  }, [map, props.lat, props.lon, props.zoom, props.seq]);
   return null;
 }
 
@@ -261,6 +270,8 @@ export function TransitMap(props: {
   agencyCenter?: { lat: number; lon: number };
   userLat?: number;
   userLon?: number;
+  /** Increment when re-requesting the same coordinates so the map still re-centers. */
+  userLocateSeq?: number;
   selectedStop: StopSummary | null;
   onSelectStop: (s: StopSummary) => void;
 }) {
@@ -341,7 +352,12 @@ export function TransitMap(props: {
 
   const flyUser =
     props.userLat !== undefined && props.userLon !== undefined ? (
-      <FlyTo lat={props.userLat} lon={props.userLon} zoom={15} />
+      <FlyTo
+        lat={props.userLat}
+        lon={props.userLon}
+        zoom={15}
+        seq={props.userLocateSeq}
+      />
     ) : null;
 
   const stopsToPlot = useMemo(() => {
@@ -367,10 +383,12 @@ export function TransitMap(props: {
       zoom={DEFAULT_ZOOM}
       className="h-full w-full"
       scrollWheelZoom={false}
+      zoomControl={false}
       preferCanvas
       zoomSnap={0}
       zoomDelta={1}
     >
+      <ZoomControl position="topright" />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
@@ -380,20 +398,11 @@ export function TransitMap(props: {
       <ViewportReporter onViewportChange={onViewportChange} />
       {flyUser}
       {props.userLat !== undefined && props.userLon !== undefined ? (
-        <CircleMarker
-          center={[props.userLat, props.userLon]}
-          radius={4}
-          pathOptions={{
-            color: "#38bdf8",
-            fillColor: "#0ea5e9",
-            fillOpacity: 0.9,
-            weight: 2,
-          }}
-        >
-          <Tooltip direction="top" offset={[0, -6]} opacity={1} permanent={false}>
-            You are here
-          </Tooltip>
-        </CircleMarker>
+        <Marker
+          position={[props.userLat, props.userLon]}
+          icon={USER_LOCATION_ICON}
+          interactive={false}
+        />
       ) : null}
       <StopMarkersLayer
         stops={stopsToPlot}

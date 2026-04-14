@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchStopsSearch } from "../api";
 
@@ -13,12 +13,27 @@ export function SearchBar(props: {
 }) {
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [q]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        if (!q) setExpanded(false);
+        setResultsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onClick);
+    return () => document.removeEventListener("pointerdown", onClick);
+  }, [expanded, q]);
 
   const searchActive = debounced.length >= 2;
 
@@ -44,38 +59,60 @@ export function SearchBar(props: {
         : "Search failed — check API and network."
       : null;
 
+  if (!expanded) {
+    return (
+      <div className="pointer-events-auto absolute left-3 top-3 z-[1000]">
+        <button
+          type="button"
+          onClick={() => {
+            setExpanded(true);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+          aria-label="Search stops"
+          className="inline-flex items-center justify-center rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition hover:bg-slate-800"
+        >
+          <Search className="h-5 w-5" aria-hidden />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="pointer-events-auto absolute left-3 right-3 top-3 z-[1000] md:left-4 md:right-auto md:w-96">
+    <div
+      ref={wrapperRef}
+      className="pointer-events-auto absolute left-3 top-3 z-[1000] w-[calc(100%-5.5rem)] md:w-96"
+    >
       <div className="relative flex items-center rounded-xl border border-slate-700 bg-slate-900 shadow-lg">
         <Search className="ml-3 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
         <input
+          ref={inputRef}
           className="min-w-0 flex-1 bg-transparent px-2 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500"
           placeholder="Search stops…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
-            setOpen(true);
+            setResultsOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => setResultsOpen(true)}
           aria-label="Search stops"
         />
-        {q ? (
-          <button
-            type="button"
-            className="mr-2 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            onClick={() => {
-              setQ("");
-            }}
-            aria-label="Clear search"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="mr-2 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+          onClick={() => {
+            setQ("");
+            setExpanded(false);
+            setResultsOpen(false);
+          }}
+          aria-label="Close search"
+        >
+          <X className="h-4 w-4" />
+        </button>
         {loading ? (
           <Loader2 className="mr-3 h-4 w-4 shrink-0 animate-spin text-sky-400" />
         ) : null}
       </div>
-      {open && debounced.length >= 2 ? (
+      {resultsOpen && debounced.length >= 2 ? (
         <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-700 bg-slate-900 py-2 shadow-xl">
           {loading ? (
             <p className="px-3 py-2 text-sm text-slate-400">Searching…</p>
@@ -97,8 +134,9 @@ export function SearchBar(props: {
                     className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-800"
                     onClick={() => {
                       props.onPickStop(s);
-                      setOpen(false);
+                      setResultsOpen(false);
                       setQ("");
+                      setExpanded(false);
                     }}
                   >
                     <span className="font-medium text-slate-100">{s.name}</span>

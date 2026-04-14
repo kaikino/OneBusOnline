@@ -4,7 +4,6 @@ import type L from "leaflet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import leaflet from "leaflet";
 import {
-  CircleMarker,
   MapContainer,
   Marker,
   TileLayer,
@@ -21,8 +20,9 @@ import {
 } from "../api";
 import { loadPersistedStops, savePersistedStops } from "../stopsPersistence";
 
-const STOP_MARKER_RADIUS = 6;
 const VIEWPORT_DEBOUNCE_MS = 100;
+const ICON_SIZE = 26;
+const ICON_HALF = ICON_SIZE / 2;
 
 const USER_LOCATION_ICON = leaflet.divIcon({
   className: "",
@@ -30,6 +30,61 @@ const USER_LOCATION_ICON = leaflet.divIcon({
   iconAnchor: [8, 8],
   html: '<div style="width:16px;height:16px;border-radius:50%;background:#22c55e;border:2.5px solid #fff;box-shadow:0 0 6px rgba(34,197,94,0.5);"></div>',
 });
+
+function directionToDegrees(direction?: string): number | null {
+  if (!direction) return null;
+  const d = direction.trim().toUpperCase();
+  if (!d) return null;
+  if (/^-?\d+(\.\d+)?$/.test(d)) {
+    const n = Number(d);
+    if (Number.isFinite(n)) return ((n % 360) + 360) % 360;
+  }
+  const cardinal = d.replace(/[^NSEW]/g, "");
+  const m: Record<string, number> = {
+    N: 0, NNE: 22.5, NE: 45, ENE: 67.5,
+    E: 90, ESE: 112.5, SE: 135, SSE: 157.5,
+    S: 180, SSW: 202.5, SW: 225, WSW: 247.5,
+    W: 270, WNW: 292.5, NW: 315, NNW: 337.5,
+  };
+  return m[cardinal] ?? null;
+}
+
+const STOP_ICON_CACHE = new Map<string, L.DivIcon>();
+
+function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
+  const key = `${selected ? "s" : "u"}:${dirDeg ?? "x"}`;
+  const cached = STOP_ICON_CACHE.get(key);
+  if (cached) return cached;
+
+  const dotSize = selected ? 20 : 20;
+  const dotBorder = selected ? 2 : 2;
+  const dotColor = selected ? "#facc15" : "#0ea5e9";
+  const dotBorderColor = selected ? "#ffffff" : "#0f172a";
+  const dotOpacity = selected ? 1 : 0.7;
+  const dotOffset = (ICON_SIZE - dotSize) / 2;
+
+  let html = "";
+
+  if (dirDeg != null) {
+    const triW = 12;
+    const triH = 8;
+    const triColor = selected ? "#facc15" : "#0ea5e9";
+    const triLeft = (ICON_SIZE - triW) / 2;
+    const triTop = (ICON_SIZE - triH) / 2;
+    html += `<div style="position:absolute;left:${triLeft}px;top:${triTop}px;width:${triW}px;height:${triH}px;clip-path:polygon(50% 0%,0% 100%,100% 100%);background:${triColor};outline:1px solid #fff;transform:rotate(${dirDeg}deg) translateY(-${ICON_HALF - 1}px);transform-origin:50% 50%;"></div>`;
+  }
+
+  html += `<div style="position:absolute;left:${dotOffset}px;top:${dotOffset}px;width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${dotColor};border:${dotBorder}px solid ${dotBorderColor};opacity:${dotOpacity};"></div>`;
+
+  const icon = leaflet.divIcon({
+    className: "",
+    iconSize: [ICON_SIZE, ICON_SIZE],
+    iconAnchor: [ICON_HALF, ICON_HALF],
+    html: `<div style="position:relative;width:${ICON_SIZE}px;height:${ICON_SIZE}px;">${html}</div>`,
+  });
+  STOP_ICON_CACHE.set(key, icon);
+  return icon;
+}
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
 /** Below this zoom we do not request new bbox data; already-loaded stops still render. */
@@ -243,17 +298,10 @@ const StopMarkersLayer = memo(
         {props.stops.map((s) => {
           if (s.id === props.selectedId) return null;
           return (
-            <CircleMarker
+            <Marker
               key={s.id}
-              center={[s.lat, s.lon]}
-              radius={STOP_MARKER_RADIUS}
-              pathOptions={{
-                color: "#0f172a",
-                fillColor: "#0ea5e9",
-                fillOpacity: 0.5,
-                weight: 2,
-                className: "map-stop-marker",
-              }}
+              position={[s.lat, s.lon]}
+              icon={stopIcon(false, directionToDegrees(s.direction))}
               eventHandlers={{
                 click: () => props.onSelectStop(s),
               }}
@@ -261,17 +309,10 @@ const StopMarkersLayer = memo(
           );
         })}
         {selectedStop ? (
-          <CircleMarker
+          <Marker
             key={`sel-${selectedStop.id}`}
-            center={[selectedStop.lat, selectedStop.lon]}
-            radius={STOP_MARKER_RADIUS}
-            pathOptions={{
-              color: "#0f172a",
-              fillColor: "#facc15",
-              fillOpacity: 1,
-              weight: 2,
-              className: "map-stop-marker",
-            }}
+            position={[selectedStop.lat, selectedStop.lon]}
+            icon={stopIcon(true, directionToDegrees(selectedStop.direction))}
             eventHandlers={{
               click: () => props.onSelectStop(selectedStop),
             }}

@@ -89,7 +89,8 @@ const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
 /** Below this zoom we do not request new bbox data; already-loaded stops still render. */
 const MIN_ZOOM_FETCH_STOPS = 13;
-const SMOOTH_ZOOM_SPEED = 0.03;
+const SMOOTH_ZOOM_SPEED = 0.008;
+const PINCH_ZOOM_SPEED = 0.03;
 const WHEEL_SETTLE_MS = 150;
 
 type ViewportBbox = {
@@ -192,6 +193,7 @@ function SmoothWheelZoom() {
 
   useEffect(() => {
     let accumulated = 0;
+    let isPinch = false;
     let mousePos: L.Point | null = null;
     let rafId: number | null = null;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -223,7 +225,7 @@ function SmoothWheelZoom() {
 
       beginZoom();
 
-      const delta = accumulated * SMOOTH_ZOOM_SPEED;
+      const delta = accumulated * (isPinch ? PINCH_ZOOM_SPEED : SMOOTH_ZOOM_SPEED);
       accumulated = 0;
 
       targetZoom = Math.max(
@@ -254,6 +256,7 @@ function SmoothWheelZoom() {
             ? e.deltaY * 60
             : e.deltaY;
       accumulated -= raw;
+      isPinch = e.ctrlKey;
       mousePos = map.mouseEventToContainerPoint(e as unknown as MouseEvent);
       if (rafId === null) rafId = requestAnimationFrame(apply);
     }
@@ -423,7 +426,7 @@ export function TransitMap(props: {
     ) : null;
 
   const stopsToPlot = useMemo(() => {
-    if (!viewport) return [];
+    if (!viewport || viewport.zoom < MIN_ZOOM_FETCH_STOPS) return [];
     const { minLat, maxLat, minLon, maxLon } = viewport.bbox;
     return [...stopsMergedRef.current.values()].filter(
       (s) =>

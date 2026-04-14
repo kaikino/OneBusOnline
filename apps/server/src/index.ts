@@ -6,7 +6,7 @@ const PORT = Number(process.env.PORT ?? 3001);
 
 const server = app.listen(PORT, () => {
   console.log(
-    `OneBusAway server http://localhost:${PORT} (stop cache: ${stopListCacheBackend()})`
+    `OneBusOnline server http://localhost:${PORT} (stop cache: ${stopListCacheBackend()})`
   );
 });
 server.on("error", (err: NodeJS.ErrnoException) => {

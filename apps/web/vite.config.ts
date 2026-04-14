@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icons/icon.svg", "robots.txt"],
       manifest: {
-        name: "OneBusAway",
-        short_name: "OneBusAway",
+        name: "OneBusOnline",
+        short_name: "OneBusOnline",
         description: "Transit stops and arrivals",
         theme_color: "#0f172a",
         background_color: "#0f172a",

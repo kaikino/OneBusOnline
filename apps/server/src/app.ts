@@ -27,7 +27,7 @@ app.use(
 app.use(express.json());
 
 app.get("/", (_req, res) => {
-  res.type("text").send("OneBusAway BFF — use /api/v1/health");
+  res.type("text").send("OneBusOnline BFF — use /api/v1/health");
 });
 
 if (isObaConfigured()) {

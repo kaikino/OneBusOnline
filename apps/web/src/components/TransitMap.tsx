@@ -13,6 +13,7 @@ import {
 import {
   bboxContainsOuter,
   fetchStopsBbox,
+  fetchStopsSnapshot,
   quantizeBboxForCache,
   type BboxParams,
 } from "../api";
@@ -22,7 +23,8 @@ const STOP_MARKER_RADIUS = 4.5;
 const VIEWPORT_DEBOUNCE_MS = 100;
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
-const MIN_ZOOM_STOPS = 13;
+/** Below this zoom we do not request new bbox data; already-loaded stops still render. */
+const MIN_ZOOM_FETCH_STOPS = 13;
 const SMOOTH_ZOOM_SPEED = 0.03;
 const WHEEL_SETTLE_MS = 150;
 
@@ -276,7 +278,7 @@ export function TransitMap(props: {
     setViewport(v);
   }, []);
 
-  const zoomOkForStops = viewport != null && viewport.zoom >= MIN_ZOOM_STOPS;
+  const zoomOkForFetch = viewport != null && viewport.zoom >= MIN_ZOOM_FETCH_STOPS;
 
   const [lastNetworkBbox, setLastNetworkBbox] = useState<BboxParams | null>(null);
   const [mergeEpoch, setMergeEpoch] = useState(0);
@@ -284,15 +286,17 @@ export function TransitMap(props: {
   const stopsMergedRef = useRef<Map<string, StopSummary>>(new Map());
 
   useEffect(() => {
-    void loadPersistedStops()
-      .then(({ byId, lastNetworkBbox: last }) => {
-        for (const [id, s] of byId) stopsMergedRef.current.set(id, s);
-        setLastNetworkBbox(last);
-        setMergeEpoch((e) => e + 1);
-      })
-      .finally(() => {
-        setIdbReady(true);
-      });
+    void (async () => {
+      const [persisted, snapshot] = await Promise.all([
+        loadPersistedStops(),
+        fetchStopsSnapshot(),
+      ]);
+      for (const [id, s] of persisted.byId) stopsMergedRef.current.set(id, s);
+      for (const s of snapshot) stopsMergedRef.current.set(s.id, s);
+      setLastNetworkBbox(persisted.lastNetworkBbox);
+      setMergeEpoch((e) => e + 1);
+      setIdbReady(true);
+    })();
   }, []);
 
   useEffect(() => {
@@ -305,24 +309,27 @@ export function TransitMap(props: {
 
   const quantized = viewport ? quantizeBboxForCache(viewport.bbox) : null;
 
-  const needsNetworkFetch = Boolean(
+  /** Viewport not covered by a prior successful fetch (full or cache hit). */
+  const viewportNeedsHydration = Boolean(
     quantized &&
-      zoomOkForStops &&
       (!lastNetworkBbox || !bboxContainsOuter(lastNetworkBbox, quantized))
   );
 
+  const fetchMode = zoomOkForFetch ? "full" : "cache";
+
   const stopsQuery = useQuery({
-    queryKey: ["stopsBbox", quantized],
+    queryKey: ["stopsBbox", quantized, fetchMode],
     queryFn: async () => {
-      const rows = await fetchStopsBbox(viewport!.bbox);
+      const cacheOnly = !zoomOkForFetch;
+      const rows = await fetchStopsBbox(viewport!.bbox, { cacheOnly });
       for (const s of rows) stopsMergedRef.current.set(s.id, s);
-      setLastNetworkBbox(quantizeBboxForCache(viewport!.bbox));
+      if (zoomOkForFetch || rows.length > 0) {
+        setLastNetworkBbox(quantizeBboxForCache(viewport!.bbox));
+      }
       setMergeEpoch((e) => e + 1);
       return rows;
     },
-    enabled: Boolean(
-      viewport && zoomOkForStops && needsNetworkFetch && idbReady
-    ),
+    enabled: Boolean(viewport && viewportNeedsHydration && idbReady),
     staleTime: 5 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -338,15 +345,15 @@ export function TransitMap(props: {
     ) : null;
 
   const stopsToPlot = useMemo(() => {
-    if (!viewport || !zoomOkForStops) return [];
+    if (!viewport) return [];
     const { minLat, maxLat, minLon, maxLon } = viewport.bbox;
     return [...stopsMergedRef.current.values()].filter(
       (s) =>
         s.lat >= minLat && s.lat <= maxLat && s.lon >= minLon && s.lon <= maxLon
     );
-  }, [viewport, zoomOkForStops, mergeEpoch]);
+  }, [viewport, mergeEpoch]);
 
-  const stopsLoading = needsNetworkFetch && stopsQuery.isFetching;
+  const stopsLoading = viewportNeedsHydration && stopsQuery.isFetching;
 
   return (
     <div className="relative h-full w-full">

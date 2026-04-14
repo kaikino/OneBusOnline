@@ -1,8 +1,13 @@
-import type {
-  AgencyCoverage,
-  ArrivalsForStopResponse,
-  StopSummary,
+import {
+  bboxContainsOuter,
+  quantizeBboxForCache,
+  type AgencyCoverage,
+  type ArrivalsForStopResponse,
+  type BboxParams,
+  type StopSummary,
 } from "@onebus/shared";
+export type { BboxParams };
+export { bboxContainsOuter, quantizeBboxForCache };
 
 const prefix = () =>
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ??
@@ -28,36 +33,22 @@ export function fetchAgencyCoverage(): Promise<AgencyCoverage[]> {
   return getJson("/api/v1/agencies/coverage");
 }
 
-export type BboxParams = {
-  minLat: number;
-  minLon: number;
-  maxLat: number;
-  maxLon: number;
-};
-
-export function quantizeBboxForCache(b: BboxParams): BboxParams {
-  const r = (x: number) => Math.round(x * 1e4) / 1e4;
-  let minLat = r(b.minLat);
-  let maxLat = r(b.maxLat);
-  let minLon = r(b.minLon);
-  let maxLon = r(b.maxLon);
-  const eps = 1e-4;
-  if (minLat >= maxLat) maxLat = minLat + eps;
-  if (minLon >= maxLon) maxLon = minLon + eps;
-  return { minLat, minLon, maxLat, maxLon };
+/** Merges all bbox/near/search stop lists stored in the BFF cache (Redis or memory). */
+export async function fetchStopsSnapshot(): Promise<StopSummary[]> {
+  try {
+    const res = await fetch(apiUrl("/api/v1/stops/snapshot"));
+    if (!res.ok) return [];
+    const data = (await res.json()) as { stops?: StopSummary[] };
+    return Array.isArray(data.stops) ? data.stops : [];
+  } catch {
+    return [];
+  }
 }
 
-export function bboxContainsOuter(outer: BboxParams, inner: BboxParams): boolean {
-  const e = 1e-9;
-  return (
-    inner.minLat >= outer.minLat - e &&
-    inner.maxLat <= outer.maxLat + e &&
-    inner.minLon >= outer.minLon - e &&
-    inner.maxLon <= outer.maxLon + e
-  );
-}
-
-export function fetchStopsBbox(params: BboxParams): Promise<StopSummary[]> {
+export function fetchStopsBbox(
+  params: BboxParams,
+  opts?: { cacheOnly?: boolean }
+): Promise<StopSummary[]> {
   const q = quantizeBboxForCache(params);
   const sp = new URLSearchParams({
     minLat: String(q.minLat),
@@ -65,6 +56,7 @@ export function fetchStopsBbox(params: BboxParams): Promise<StopSummary[]> {
     maxLat: String(q.maxLat),
     maxLon: String(q.maxLon),
   });
+  if (opts?.cacheOnly) sp.set("cacheOnly", "1");
   return getJson(`/api/v1/stops/bbox?${sp}`);
 }
 

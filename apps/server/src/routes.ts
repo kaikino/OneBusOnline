@@ -1,6 +1,19 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 import type { ObaService } from "./obaService.js";
+import { mergeAllCachedStopLists, stopListCacheBackend } from "./stopListCache.js";
+
+export async function stopsSnapshot(_req: Request, res: Response): Promise<void> {
+  try {
+    const stops = await mergeAllCachedStopLists();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ stops, stopListCache: stopListCacheBackend() });
+  } catch (e) {
+    res.status(500).json({
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
 
 const nearQuery = z.object({
   lat: z.coerce.number().min(-90).max(90),
@@ -15,6 +28,10 @@ const bboxQuery = z.object({
   maxLat: z.coerce.number(),
   maxLon: z.coerce.number(),
   q: z.string().optional(),
+  cacheOnly: z
+    .union([z.string(), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "1" || v === "true"),
 });
 
 const searchQuery = z.object({
@@ -25,6 +42,8 @@ const searchQuery = z.object({
 
 export function apiRoutes(service: ObaService): Router {
   const r = Router();
+
+  r.get("/stops/snapshot", stopsSnapshot);
 
   r.get("/health", async (_req: Request, res: Response) => {
     try {
@@ -73,13 +92,16 @@ export function apiRoutes(service: ObaService): Router {
       res.status(400).json({ error: "Invalid bbox ordering" });
       return;
     }
-    const data = await service.stopsBbox({
-      minLat,
-      minLon,
-      maxLat,
-      maxLon,
-      query: parsed.data.q,
-    });
+    const data = await service.stopsBbox(
+      {
+        minLat,
+        minLon,
+        maxLat,
+        maxLon,
+        query: parsed.data.q,
+      },
+      { cacheOnly: parsed.data.cacheOnly === true }
+    );
     res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
     res.json(data);
   });

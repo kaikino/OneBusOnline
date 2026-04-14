@@ -2,7 +2,7 @@
 
 ## Layout
 
-- `**apps/web**`: production build is static files (Vite + PWA). Serve `apps/web/dist` as the site root behind HTTPS.
+- **`apps/web`**: production build is static files (Vite + PWA). Serve `apps/web/dist` as the site root behind HTTPS.
 - `apps/server`: long-running Node process for the REST API. Only the server uses `ONEBUSAWAY_API_KEY`.
 
 ## Environment variables
@@ -16,8 +16,9 @@
 | `OBA_BASE_URL`           | Strongly recommended | Regional API base URL (no path), e.g. `https://api.pugetsound.onebusaway.org`. The SDK also reads `ONEBUSAWAY_SDK_BASE_URL` if unset. |
 | `CORS_ORIGIN`            | Yes (production)     | Comma-separated allowed web origins for the SPA (e.g. `https://app.example.com`). In development, CORS is permissive when unset.      |
 | `PORT`                   | No                   | Listen port (default `3001`).                                                                                                         |
-| `CACHE_STOPS_TTL_SEC`    | No                   | Stop-list cache TTL in seconds (default `600`).                                                                                       |
-| `CACHE_ARRIVALS_TTL_SEC` | No                   | Arrivals cache TTL in seconds (default `25`).                                                                                         |
+| `CACHE_STOPS_TTL_SEC`    | No                   | Stop-list cache TTL in seconds (default `600`). Applies to Redis and in-memory backends.                                                 |
+| `CACHE_ARRIVALS_TTL_SEC` | No                   | Arrivals cache TTL in seconds (default `25`, in-process only).                                                                        |
+| `REDIS_URL`              | No                   | If set, stop lists (near / bbox / search) are cached in Redis and survive API restarts. Omit to use in-memory cache only.              |
 
 
 ### Frontend build (`apps/web`)

@@ -1,3 +1,10 @@
+export type { BboxParams } from "./bbox.js";
+export {
+  bboxContainsOuter,
+  quantizeBboxForCache,
+  stopsBboxCacheKey,
+} from "./bbox.js";
+
 export interface StopSummary {
   id: string;
   name: string;
@@ -48,4 +55,5 @@ export interface HealthResponse {
   obaApiHost?: string;
   serverTimeMs?: number;
   error?: string;
+  stopListCache?: "redis" | "memory";
 }

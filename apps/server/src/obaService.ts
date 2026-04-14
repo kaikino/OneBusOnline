@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   StopSummary,
 } from "@onebus/shared";
+import { quantizeBboxForCache, stopsBboxCacheKey } from "@onebus/shared";
 import OnebusawaySDK from "onebusaway-sdk";
 import NodeCache from "node-cache";
 import { haversineMeters } from "./haversine.js";
@@ -13,11 +14,15 @@ import {
   normalizeStops,
 } from "./normalize.js";
 import { obaCall } from "./obaRateLimit.js";
+import {
+  cacheGetStops,
+  cacheSetStops,
+  stopListCacheBackend,
+} from "./stopListCache.js";
 
 const stopsMetaTtl = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
 const arrivalsTtl = Number(process.env.CACHE_ARRIVALS_TTL_SEC ?? 25);
 
-const stopsCache = new NodeCache({ stdTTL: stopsMetaTtl, checkperiod: 60 });
 const arrivalsCache = new NodeCache({ stdTTL: arrivalsTtl, checkperiod: 10 });
 const agenciesCache = new NodeCache({ stdTTL: stopsMetaTtl, checkperiod: 60 });
 
@@ -26,8 +31,9 @@ export class ObaService {
 
   async health(): Promise<HealthResponse> {
     const obaApiHost = ObaService.resolvedObaHostname();
+    const stopListCache = stopListCacheBackend();
     if (!process.env.ONEBUSAWAY_API_KEY?.trim()) {
-      return { ok: true, obaConfigured: false, obaApiHost };
+      return { ok: true, obaConfigured: false, obaApiHost, stopListCache };
     }
     try {
       const t = await this.client.currentTime.retrieve();
@@ -36,6 +42,7 @@ export class ObaService {
         obaConfigured: true,
         obaApiHost,
         serverTimeMs: t.currentTime ?? t.data?.entry?.time,
+        stopListCache,
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -44,6 +51,7 @@ export class ObaService {
         obaConfigured: true,
         obaApiHost,
         error: msg,
+        stopListCache,
       };
     }
   }
@@ -79,7 +87,7 @@ export class ObaService {
     query?: string;
   }): Promise<StopSummary[]> {
     const key = `near:${params.lat.toFixed(4)}:${params.lon.toFixed(4)}:${Math.round(params.radius)}:${params.query ?? ""}`;
-    const cached = stopsCache.get<StopSummary[]>(key);
+    const cached = await cacheGetStops(key);
     if (cached) return cached;
     const res = await obaCall("stopsForLocation", () =>
       this.client.stopsForLocation.list({
@@ -95,26 +103,31 @@ export class ObaService {
       lat: params.lat,
       lon: params.lon,
     });
-    stopsCache.set(key, out, stopsMetaTtl);
+    await cacheSetStops(key, out, stopsMetaTtl);
     return out;
   }
 
-  async stopsBbox(params: {
-    minLat: number;
-    minLon: number;
-    maxLat: number;
-    maxLon: number;
-    query?: string;
-  }): Promise<StopSummary[]> {
-    const key = `bbox:v6:${params.minLat.toFixed(4)}:${params.minLon.toFixed(4)}:${params.maxLat.toFixed(4)}:${params.maxLon.toFixed(4)}:${params.query ?? ""}`;
-    const cached = stopsCache.get<StopSummary[]>(key);
+  async stopsBbox(
+    params: {
+      minLat: number;
+      minLon: number;
+      maxLat: number;
+      maxLon: number;
+      query?: string;
+    },
+    options?: { cacheOnly?: boolean }
+  ): Promise<StopSummary[]> {
+    const q = quantizeBboxForCache(params);
+    const key = stopsBboxCacheKey(q, params.query);
+    const cached = await cacheGetStops(key);
     if (cached) return cached;
+    if (options?.cacheOnly) return [];
     const parsedCalls = Number(process.env.OBA_BBOX_MAX_STOPS_FOR_LOCATION_CALLS);
     const maxCalls =
       Number.isFinite(parsedCalls) && parsedCalls > 0 ? Math.floor(parsedCalls) : 36;
     const budget = { left: maxCalls };
-    const out = await this.stopsBboxChunked(params, 0, budget);
-    stopsCache.set(key, out, stopsMetaTtl);
+    const out = await this.stopsBboxChunked({ ...q, query: params.query }, 0, budget);
+    await cacheSetStops(key, out, stopsMetaTtl);
     return out;
   }
 
@@ -217,7 +230,7 @@ export class ObaService {
 
   async searchStops(input: string, origin?: { lat: number; lon: number }): Promise<StopSummary[]> {
     const key = `search:${input.toLowerCase()}:${origin?.lat ?? "x"}:${origin?.lon ?? "x"}`;
-    const cached = stopsCache.get<StopSummary[]>(key);
+    const cached = await cacheGetStops(key);
     if (cached) return cached;
 
     let list: Array<{
@@ -262,7 +275,7 @@ export class ObaService {
     }
 
     const out = normalizeStops(list, refs, origin);
-    stopsCache.set(key, out, stopsMetaTtl);
+    await cacheSetStops(key, out, stopsMetaTtl);
     return out;
   }
 

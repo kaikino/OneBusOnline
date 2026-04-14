@@ -4,7 +4,8 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import "express-async-errors";
 import { createObaClient, isObaConfigured } from "./obaClient.js";
 import { ObaService } from "./obaService.js";
-import { apiRoutes } from "./routes.js";
+import { apiRoutes, stopsSnapshot } from "./routes.js";
+import { closeStopListCache, stopListCacheBackend } from "./stopListCache.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 
@@ -38,8 +39,13 @@ if (isObaConfigured()) {
 } else {
   console.warn("ONEBUSAWAY_API_KEY not set — only /api/v1/health is available");
   const fallback = Router();
+  fallback.get("/stops/snapshot", stopsSnapshot);
   fallback.get("/health", (_req, res) => {
-    res.json({ ok: true, obaConfigured: false });
+    res.json({
+      ok: true,
+      obaConfigured: false,
+      stopListCache: stopListCacheBackend(),
+    });
   });
   const blockOba: express.RequestHandler = (_req, res) => {
     res.status(503).json({
@@ -58,7 +64,9 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 const server = app.listen(PORT, () => {
-  console.log(`OneBusAway server http://localhost:${PORT}`);
+  console.log(
+    `OneBusAway server http://localhost:${PORT} (stop cache: ${stopListCacheBackend()})`
+  );
 });
 server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {
@@ -77,7 +85,9 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 
 function shutdown(signal: string) {
   console.log(`[bff] ${signal} — closing`);
-  server.close(() => process.exit(0));
+  void closeStopListCache().finally(() => {
+    server.close(() => process.exit(0));
+  });
 }
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));

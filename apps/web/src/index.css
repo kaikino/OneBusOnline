@@ -13,6 +13,7 @@ body,
   font-family: inherit;
 }
 
+/* Map markers: a dot, plus an arrow orbiting it when the heading is known. */
 .marker {
   --color: #0ea5e9;
   --border: #0f172a;
@@ -24,6 +25,16 @@ body,
   border: 2px solid var(--border);
   border-radius: 50%;
   background: var(--color);
+}
+.marker-arrow {
+  position: absolute;
+  left: calc(50% - 6px);
+  top: calc(50% - 4px);
+  width: 12px;
+  height: 8px;
+  background: var(--color);
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
+  transform: rotate(var(--heading)) translateY(-11px);
 }
 
 .marker-stop {

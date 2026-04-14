@@ -7,7 +7,7 @@ import {
   quantizeBbox,
 } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type Map as LeafletMap, divIcon } from "leaflet";
+import { type DivIcon, type Map as LeafletMap, divIcon } from "leaflet";
 import { type Ref, useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, ZoomControl, useMapEvents } from "react-leaflet";
 import { fetchStopsInBbox, fetchStopsSnapshot } from "../api";
@@ -21,15 +21,38 @@ const ATTRIBUTION =
 const MIN_FETCH_ZOOM = 13;
 const SAVE_DELAY_MS = 2000;
 
-const stopIcon = (className: string) =>
-  divIcon({
-    className: `marker marker-stop ${className}`,
-    iconSize: [24, 24],
-    html: '<i class="marker-dot"></i>',
-  });
+const STOP_SIZE = 24;
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
-const STOP_ICON = stopIcon("");
-const SELECTED_STOP_ICON = stopIcon("marker-selected");
+// react-leaflet rebuilds a marker's DOM whenever its icon identity changes, so icons are shared.
+const iconCache = new Map<string, DivIcon>();
+
+function markerIcon(className: string, size: number, heading?: number): DivIcon {
+  const degrees = heading === undefined ? undefined : Math.round(heading);
+  const key = `${className}:${degrees}`;
+  let icon = iconCache.get(key);
+  if (!icon) {
+    const arrow =
+      degrees === undefined ? "" : `<i class="marker-arrow" style="--heading:${degrees}deg"></i>`;
+    icon = divIcon({
+      className: `marker ${className}`,
+      iconSize: [size, size],
+      html: `${arrow}<i class="marker-dot"></i>`,
+    });
+    iconCache.set(key, icon);
+  }
+  return icon;
+}
+
+function stopIcon(direction: string | undefined, selected: boolean): DivIcon {
+  const octant = COMPASS.indexOf(direction ?? "");
+  return markerIcon(
+    `marker-stop ${selected ? "marker-selected" : ""}`,
+    STOP_SIZE,
+    octant < 0 ? undefined : octant * 45,
+  );
+}
+
 const USER_ICON = divIcon({ className: "marker-user", iconSize: [16, 16] });
 
 interface Viewport {
@@ -137,7 +160,7 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
         <Marker
           key={stop.id}
           position={[stop.lat, stop.lon]}
-          icon={stop.id === selectedStop?.id ? SELECTED_STOP_ICON : STOP_ICON}
+          icon={stopIcon(stop.direction, stop.id === selectedStop?.id)}
           eventHandlers={{ click: () => onSelectStop(stop) }}
         />
       ))}

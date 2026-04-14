@@ -1,77 +1,106 @@
 # Deployment
 
-## Layout
+## Architecture
 
-- **`apps/web`**: production build is static files (Vite + PWA). Serve `apps/web/dist` as the site root behind HTTPS.
-- `apps/server`: long-running Node process for the REST API. Only the server uses `ONEBUSAWAY_API_KEY`.
+This monorepo deploys as a **single Vercel project**:
+
+- **Frontend** (`apps/web`): static Vite + PWA build, served from `apps/web/dist`.
+- **Backend** (`api/index.ts`): Vercel serverless function that exports the Express BFF.
+  Routes under `/api/*` are handled by the function; everything else falls through to the SPA.
+- **Redis** (Upstash, Railway, etc.): required for caching in serverless (no persistent in-process memory).
+
+The same codebase also supports traditional long-running Node deployment (see "Traditional hosting" below).
+
+## Vercel deployment (recommended)
+
+### 1. Create an Upstash Redis database
+
+1. Go to [console.upstash.com](https://console.upstash.com) → **Create Database**.
+2. Copy the **Redis URL** (starts with `rediss://`).
+
+### 2. Deploy to Vercel
+
+1. Push the repo to GitHub.
+2. In [vercel.com](https://vercel.com), **Import** the GitHub repo.
+3. Vercel will detect `vercel.json` — no framework overrides needed.
+4. Add these **Environment Variables** in the Vercel dashboard:
+
+   | Variable               | Value                                      |
+   | ---------------------- | ------------------------------------------ |
+   | `ONEBUSAWAY_API_KEY`   | Your OBA API key                           |
+   | `OBA_BASE_URL`         | `https://api.pugetsound.onebusaway.org`    |
+   | `REDIS_URL`            | `rediss://default:xxx@host:6380`           |
+
+5. Click **Deploy**.
+
+The `vercel.json` configures:
+- Build: `npm run build -w @onebus/shared && npm run build -w @onebus/web`
+- Output: `apps/web/dist`
+- Rewrites: `/api/*` → serverless function, everything else → SPA `index.html`
+
+### 3. Custom domain
+
+In Vercel project settings → **Domains**, add your domain.
+Point your DNS (e.g., GoDaddy) CNAME to `cname.vercel-dns.com`.
 
 ## Environment variables
 
-### API (`apps/server`)
+### Serverless / API
 
-
-| Variable                 | Required             | Description                                                                                                                           |
-| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `ONEBUSAWAY_API_KEY`     | Yes (production)     | OBA application key.                                                                                                                  |
-| `OBA_BASE_URL`           | Strongly recommended | Regional API base URL (no path), e.g. `https://api.pugetsound.onebusaway.org`. The SDK also reads `ONEBUSAWAY_SDK_BASE_URL` if unset. |
-| `CORS_ORIGIN`            | Yes (production)     | Comma-separated allowed web origins for the SPA (e.g. `https://app.example.com`). In development, CORS is permissive when unset.      |
-| `PORT`                   | No                   | Listen port (default `3001`).                                                                                                         |
-| `CACHE_STOPS_TTL_SEC`    | No                   | Stop-list cache TTL in seconds (default `600`). Applies to Redis and in-memory backends.                                                 |
-| `CACHE_ARRIVALS_TTL_SEC` | No                   | Arrivals cache TTL in seconds (default `25`, in-process only).                                                                        |
-| `ARRIVALS_MINUTES_AFTER_DEFAULT` | No           | Default “minutes after now” for `/stops/:id/arrivals` when query omitted (default `120`, max `720`).                                   |
-| `ARRIVALS_MINUTES_BEFORE_DEFAULT` | No        | Default “minutes before now” when query omitted (default `15`, max `120`).                                                             |
-| `REDIS_URL`              | No                   | If set, stop lists (near / bbox / search) are cached in Redis and survive API restarts. Omit to use in-memory cache only.              |
-
+| Variable                         | Required         | Description                                                                |
+| -------------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `ONEBUSAWAY_API_KEY`             | Yes              | OBA application key.                                                       |
+| `OBA_BASE_URL`                   | Recommended      | Regional API base URL, e.g. `https://api.pugetsound.onebusaway.org`.       |
+| `REDIS_URL`                      | Yes (serverless) | Redis connection string. Required for serverless; strongly recommended for traditional hosting. |
+| `CACHE_STOPS_TTL_SEC`            | No               | Stop-list cache TTL in seconds (default `600`).                            |
+| `CACHE_ARRIVALS_TTL_SEC`         | No               | Arrivals cache TTL in seconds (default `25`).                              |
+| `ARRIVALS_MINUTES_AFTER_DEFAULT` | No               | Default "minutes after now" for arrivals (default `120`).                  |
+| `ARRIVALS_MINUTES_BEFORE_DEFAULT`| No               | Default "minutes before now" (default `15`, max `120`).                    |
 
 ### Frontend build (`apps/web`)
 
+| Variable                        | Required | Description                                                                                           |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`             | No       | Leave empty on Vercel (same origin). Only set if the API is on a different domain.                    |
+| `VITE_ARRIVALS_MINUTES_AFTER`   | No       | Arrivals window "after now" (default `120`).                                                          |
+| `VITE_ARRIVALS_MINUTES_BEFORE`  | No       | Arrivals window "before now" (default `15`).                                                          |
+| `VITE_ARRIVALS_EXTEND_STEP_MIN` | No       | Minutes added per "Show arrivals further ahead" tap (default `120`).                                  |
 
-| Variable            | Required         | Description                                                                                                                                             |
-| ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE_URL` | Yes (production) | Public base URL of the API **without** a trailing slash, e.g. `https://api.example.com`. Leave empty locally so `/api` is proxied during `npm run dev`. |
-| `VITE_ARRIVALS_MINUTES_AFTER` | No | Arrivals window “after now” sent by the SPA (default `120`, max `720`). Larger shows more future trips. |
-| `VITE_ARRIVALS_MINUTES_BEFORE` | No | Arrivals window “before now” (default `15`, max `120`). |
+`VITE_*` variables are baked into the client bundle at build time.
 
+## Traditional hosting
 
-Set `VITE_`* at **build time** (they are baked into the client bundle).
-
-## Build
-
-From the repository root:
+The server can still run as a long-running Node.js process:
 
 ```bash
 npm install
 npm run build
+node apps/server/dist/index.js
 ```
 
-Outputs:
+Set `PORT` (default `3001`) and `CORS_ORIGIN` for cross-origin setups.
+Serve `apps/web/dist` from a CDN or reverse proxy.
 
-- `apps/web/dist` — deploy as static assets.
-- `apps/server/dist` — run with Node, e.g. `node apps/server/dist/index.js` after `npm run build -w @onebus/server`.
-
-Minimal API-only build (from root, workspaces installed):
+## Local development
 
 ```bash
-npm run build -w @onebus/shared && npm run build -w @onebus/server && node apps/server/dist/index.js
+cp .env.example .env    # fill in values
+npm install
+npm run dev             # starts BFF + Vite dev server concurrently
 ```
 
-In a monorepo, install dependencies from the **repository root** so `@onebus/shared` resolves; then build shared before server.
-
-## CORS
-
-In production, `CORS_ORIGIN` must list the exact origin(s) of the deployed SPA. Wildcards are not enabled by default.
+The Vite dev server proxies `/api` to `http://localhost:3001`.
 
 ## PWA
 
-- The service worker precaches static assets; `/api/`* is fetched with a network-only strategy so arrival data is not cached by the SW.
-- Icons are configured in `apps/web/vite.config.ts` (`manifest.icons`).
+- The service worker precaches static assets; `/api/*` uses a network-only strategy.
+- Icons are configured in `apps/web/vite.config.ts`.
 
 ## Arrival colors
 
-Behavior matches `punctuality` on each arrival (see `apps/server/src/normalize.ts` and `@onebus/shared`):
-
-- **Green (`on_time`)**: real-time data and schedule deviation within ±90 seconds.
-- **Blue (`early`)**: real-time and deviation < −90 seconds.
-- **Red (`late`)**: real-time and deviation > +90 seconds.
-- **Gray (`scheduled_only`)**: no reliable real-time deviation for coloring.
-
+| Punctuality        | Color  | Meaning                                        |
+| ------------------ | ------ | ---------------------------------------------- |
+| `on_time`          | Green  | Real-time, deviation within ±90 seconds        |
+| `early`            | Orange | Real-time, deviation < −90 seconds             |
+| `late`             | Red    | Real-time, deviation > +90 seconds             |
+| `scheduled_only`   | Gray   | No reliable real-time deviation                |

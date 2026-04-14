@@ -88,11 +88,8 @@ export default function App() {
       <header className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2 md:px-4">
         <div>
           <h1 className="text-base font-semibold tracking-tight text-slate-50 md:text-lg">
-            OneBusAway
+            OneBusOnline
           </h1>
-          <p className="hidden text-xs text-slate-500 md:block" title={PUNCTUALITY_DOC}>
-            Arrival colors: green on time · blue early · red late
-          </p>
         </div>
         <button
           type="button"

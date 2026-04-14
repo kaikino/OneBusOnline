@@ -6,7 +6,6 @@ import type {
 } from "@onebus/shared";
 import { quantizeBboxForCache, stopsBboxCacheKey } from "@onebus/shared";
 import OnebusawaySDK from "onebusaway-sdk";
-import NodeCache from "node-cache";
 import { haversineMeters } from "./haversine.js";
 import {
   normalizeAgencyCoverage,
@@ -15,7 +14,9 @@ import {
 } from "./normalize.js";
 import { obaCall } from "./obaRateLimit.js";
 import {
+  cacheGet,
   cacheGetStops,
+  cacheSet,
   cacheSetStops,
   stopListCacheBackend,
 } from "./stopListCache.js";
@@ -23,20 +24,15 @@ import {
 const stopsMetaTtl = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
 const arrivalsTtl = Number(process.env.CACHE_ARRIVALS_TTL_SEC ?? 25);
 
-/** OBA “minutes after now” window; larger = more upcoming trips / routes (default 120). */
 const arrivalsDefaultAfter = (() => {
   const n = Number(process.env.ARRIVALS_MINUTES_AFTER_DEFAULT ?? 120);
   return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 120;
 })();
 
-/** Minutes into the past to include (default 15). */
 const arrivalsDefaultBefore = (() => {
   const n = Number(process.env.ARRIVALS_MINUTES_BEFORE_DEFAULT ?? 15);
   return Number.isFinite(n) ? Math.min(120, Math.max(0, Math.floor(n))) : 15;
 })();
-
-const arrivalsCache = new NodeCache({ stdTTL: arrivalsTtl, checkperiod: 10 });
-const agenciesCache = new NodeCache({ stdTTL: stopsMetaTtl, checkperiod: 60 });
 
 export class ObaService {
   constructor(private readonly client: OnebusawaySDK) {}
@@ -82,13 +78,17 @@ export class ObaService {
   }
 
   async agenciesCoverage(): Promise<AgencyCoverage[]> {
-    const hit = agenciesCache.get<AgencyCoverage[]>("agencies");
-    if (hit) return hit;
+    const raw = await cacheGet("agencies");
+    if (raw) {
+      try {
+        return JSON.parse(raw) as AgencyCoverage[];
+      } catch { /* fall through */ }
+    }
     const res = await this.client.agenciesWithCoverage.list();
     const list = res.data?.list ?? [];
     const refs = res.data?.references;
     const out = normalizeAgencyCoverage(list, refs);
-    agenciesCache.set("agencies", out, stopsMetaTtl);
+    await cacheSet("agencies", JSON.stringify(out), stopsMetaTtl);
     return out;
   }
 
@@ -298,8 +298,12 @@ export class ObaService {
     const after = q?.minutesAfter ?? arrivalsDefaultAfter;
     const before = q?.minutesBefore ?? arrivalsDefaultBefore;
     const key = `arr:${stopId}:${after}:${before}`;
-    const cached = arrivalsCache.get<ArrivalsForStopResponse>(key);
-    if (cached) return cached;
+    const raw = await cacheGet(key);
+    if (raw) {
+      try {
+        return JSON.parse(raw) as ArrivalsForStopResponse;
+      } catch { /* fall through */ }
+    }
     const res = await this.client.arrivalAndDeparture.list(stopId, {
       minutesAfter: after,
       minutesBefore: before,
@@ -309,7 +313,7 @@ export class ObaService {
     const refs = res.data?.references;
     const serverTimeMs = res.currentTime ?? Date.now();
     const out = normalizeArrivals(stopId, serverTimeMs, list, refs);
-    arrivalsCache.set(key, out, arrivalsTtl);
+    await cacheSet(key, JSON.stringify(out), arrivalsTtl);
     return out;
   }
 }

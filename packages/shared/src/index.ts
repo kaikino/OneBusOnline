@@ -55,5 +55,5 @@ export interface HealthResponse {
   obaApiHost?: string;
   serverTimeMs?: number;
   error?: string;
-  stopListCache?: "redis" | "memory";
+  stopListCache?: "redis" | "memory" | "none";
 }

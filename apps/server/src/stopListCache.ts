@@ -1,9 +1,7 @@
 import type { StopSummary } from "@onebus/shared";
 import { Redis } from "ioredis";
-import NodeCache from "node-cache";
 
 const ttlSec = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
-const memory = new NodeCache({ stdTTL: ttlSec, checkperiod: 60 });
 
 const KEY_PREFIX = "onebus:v1:stops";
 
@@ -62,8 +60,8 @@ function redis(): Redis | null {
   }
 }
 
-export function stopListCacheBackend(): "redis" | "memory" {
-  return redis() ? "redis" : "memory";
+export function stopListCacheBackend(): "redis" | "none" {
+  return redis() ? "redis" : "none";
 }
 
 export async function closeStopListCache(): Promise<void> {
@@ -79,16 +77,14 @@ export async function closeStopListCache(): Promise<void> {
 
 export async function cacheGetStops(key: string): Promise<StopSummary[] | undefined> {
   const r = redis();
-  if (r) {
-    try {
-      const raw = await r.get(`${KEY_PREFIX}:${key}`);
-      if (raw) return JSON.parse(raw) as StopSummary[];
-    } catch (e) {
-      logRedisErr(e);
-    }
-    return undefined;
+  if (!r) return undefined;
+  try {
+    const raw = await r.get(`${KEY_PREFIX}:${key}`);
+    if (raw) return JSON.parse(raw) as StopSummary[];
+  } catch (e) {
+    logRedisErr(e);
   }
-  return memory.get<StopSummary[]>(key);
+  return undefined;
 }
 
 export async function cacheSetStops(
@@ -97,16 +93,33 @@ export async function cacheSetStops(
   ttl: number
 ): Promise<void> {
   const r = redis();
-  if (r) {
-    try {
-      await r.setex(`${KEY_PREFIX}:${key}`, ttl, JSON.stringify(value));
-    } catch (e) {
-      logRedisErr(e);
-      memory.set(key, value, ttl);
-    }
-    return;
+  if (!r) return;
+  try {
+    await r.setex(`${KEY_PREFIX}:${key}`, ttl, JSON.stringify(value));
+  } catch (e) {
+    logRedisErr(e);
   }
-  memory.set(key, value, ttl);
+}
+
+export async function cacheGet(key: string): Promise<string | null> {
+  const r = redis();
+  if (!r) return null;
+  try {
+    return await r.get(`${KEY_PREFIX}:${key}`);
+  } catch (e) {
+    logRedisErr(e);
+    return null;
+  }
+}
+
+export async function cacheSet(key: string, value: string, ttl: number): Promise<void> {
+  const r = redis();
+  if (!r) return;
+  try {
+    await r.setex(`${KEY_PREFIX}:${key}`, ttl, value);
+  } catch (e) {
+    logRedisErr(e);
+  }
 }
 
 const SNAPSHOT_MAX_STOPS = (() => {
@@ -136,42 +149,30 @@ function mergeStopRowsInto(
   }
 }
 
-/**
- * All stop-list entries in Redis (bbox / near / search), deduped by stop id.
- * Used to hydrate clients without calling OBA. Bounded by STOPS_SNAPSHOT_MAX_STOPS.
- */
 export async function mergeAllCachedStopLists(): Promise<StopSummary[]> {
   const merged = new Map<string, StopSummary>();
   const r = redis();
-  if (r) {
-    try {
-      const pattern = `${KEY_PREFIX}:*`;
-      let cursor = "0";
-      do {
-        const [next, keys] = await r.scan(cursor, "MATCH", pattern, "COUNT", 256);
-        cursor = next;
-        for (const fullKey of keys) {
-          if (merged.size >= SNAPSHOT_MAX_STOPS) break;
-          const raw = await r.get(fullKey);
-          if (!raw) continue;
-          try {
-            mergeStopRowsInto(merged, JSON.parse(raw) as unknown);
-          } catch {
-            /* skip malformed */
-          }
-        }
+  if (!r) return [];
+  try {
+    const pattern = `${KEY_PREFIX}:*`;
+    let cursor = "0";
+    do {
+      const [next, keys] = await r.scan(cursor, "MATCH", pattern, "COUNT", 256);
+      cursor = next;
+      for (const fullKey of keys) {
         if (merged.size >= SNAPSHOT_MAX_STOPS) break;
-      } while (cursor !== "0");
-    } catch (e) {
-      logRedisErr(e);
-    }
-    return [...merged.values()];
-  }
-
-  for (const key of memory.keys()) {
-    if (merged.size >= SNAPSHOT_MAX_STOPS) break;
-    const rows = memory.get<StopSummary[]>(key);
-    mergeStopRowsInto(merged, rows);
+        const raw = await r.get(fullKey);
+        if (!raw) continue;
+        try {
+          mergeStopRowsInto(merged, JSON.parse(raw) as unknown);
+        } catch {
+          /* skip malformed */
+        }
+      }
+      if (merged.size >= SNAPSHOT_MAX_STOPS) break;
+    } while (cursor !== "0");
+  } catch (e) {
+    logRedisErr(e);
   }
   return [...merged.values()];
 }

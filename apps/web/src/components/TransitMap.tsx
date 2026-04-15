@@ -55,6 +55,25 @@ function stopIcon(direction: string | undefined, selected: boolean): DivIcon {
 
 const USER_ICON = divIcon({ className: "marker-user", iconSize: [16, 16] });
 
+/** Percentage of known stops drawn at a zoom level, to keep zoomed-out views readable. */
+function visiblePercent(zoom: number): number {
+  if (zoom >= 14) return 100;
+  if (zoom >= 13.5) return 50;
+  if (zoom >= 13) return 25;
+  if (zoom >= 12) return 10;
+  if (zoom >= 11) return 5;
+  return 1;
+}
+
+/** FNV-1a hash mapped to 0-99, so the same stops stay visible as the map moves. */
+function samplingRank(id: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return hash % 100;
+}
+
 interface Viewport {
   bbox: Bbox;
   zoom: number;
@@ -62,7 +81,7 @@ interface Viewport {
 
 /**
  * Accumulates every stop seen so far (saved locally, cached on the server, or
- * fetched for a viewport) and returns the ones inside `viewport`.
+ * fetched for a viewport) and returns the ones to draw for `viewport`.
  */
 function useStops(viewport: Viewport | null): Stop[] {
   const [stops, setStops] = useState<ReadonlyMap<string, Stop>>(new Map());
@@ -106,8 +125,10 @@ function useStops(viewport: Viewport | null): Stop[] {
 
   return useMemo(() => {
     if (!viewport) return [];
-    return [...stops.values()].filter((stop) =>
-      bboxContainsPoint(viewport.bbox, stop.lat, stop.lon),
+    const percent = visiblePercent(viewport.zoom);
+    return [...stops.values()].filter(
+      (stop) =>
+        bboxContainsPoint(viewport.bbox, stop.lat, stop.lon) && samplingRank(stop.id) < percent,
     );
   }, [stops, viewport]);
 }

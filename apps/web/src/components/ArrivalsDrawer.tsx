@@ -217,7 +217,7 @@ function BottomSheet(props: {
         transform: dragging ? `translateY(${dragOffset}px)` : restingTransform(open, expanded),
       }}
       className={`fixed inset-x-0 bottom-0 z-[2001] flex h-[74dvh] flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] ${
-        dragging ? "" : "transition-transform duration-300"
+        dragging ? "" : "transition-transform duration-500 ease-out"
       }`}
     >
       <div className="cursor-grab touch-none select-none pt-3" {...handlers}>

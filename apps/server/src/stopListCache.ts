@@ -149,7 +149,9 @@ function mergeStopRowsInto(
   }
 }
 
-export async function mergeAllCachedStopLists(): Promise<StopSummary[]> {
+export async function mergeAllCachedStopLists(
+  bbox?: { minLat: number; minLon: number; maxLat: number; maxLon: number }
+): Promise<StopSummary[]> {
   const merged = new Map<string, StopSummary>();
   const r = redis();
   if (!r) return [];
@@ -174,5 +176,15 @@ export async function mergeAllCachedStopLists(): Promise<StopSummary[]> {
   } catch (e) {
     logRedisErr(e);
   }
-  return [...merged.values()];
+  let out = [...merged.values()];
+  if (bbox) {
+    out = out.filter(
+      (s) =>
+        s.lat >= bbox.minLat &&
+        s.lat <= bbox.maxLat &&
+        s.lon >= bbox.minLon &&
+        s.lon <= bbox.maxLon
+    );
+  }
+  return out;
 }

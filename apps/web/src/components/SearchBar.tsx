@@ -61,7 +61,7 @@ export function SearchBar(props: {
 
   if (!expanded) {
     return (
-      <div className="pointer-events-auto absolute left-3 top-3 z-[1000]">
+      <div className="pointer-events-auto absolute left-3 top-3 z-[1000]" data-ui-control>
         <button
           type="button"
           onClick={() => {
@@ -81,6 +81,7 @@ export function SearchBar(props: {
     <div
       ref={wrapperRef}
       className="pointer-events-auto absolute left-3 top-3 z-[1000] w-[calc(100%-5.5rem)] md:w-96"
+      data-ui-control
     >
       <div className="relative flex items-center rounded-xl border border-slate-700 bg-slate-900 shadow-lg">
         <Search className="ml-3 h-4 w-4 shrink-0 text-slate-400" aria-hidden />

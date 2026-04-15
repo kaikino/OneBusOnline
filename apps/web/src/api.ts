@@ -34,9 +34,21 @@ export function fetchAgencyCoverage(): Promise<AgencyCoverage[]> {
 }
 
 /** Merges all bbox/near/search stop lists stored in the BFF cache (Redis or memory). */
-export async function fetchStopsSnapshot(): Promise<StopSummary[]> {
+export async function fetchStopsSnapshot(
+  bbox?: BboxParams
+): Promise<StopSummary[]> {
   try {
-    const res = await fetch(apiUrl("/api/v1/stops/snapshot"));
+    let url = apiUrl("/api/v1/stops/snapshot");
+    if (bbox) {
+      const sp = new URLSearchParams({
+        minLat: String(bbox.minLat),
+        minLon: String(bbox.minLon),
+        maxLat: String(bbox.maxLat),
+        maxLon: String(bbox.maxLon),
+      });
+      url += `?${sp}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) return [];
     const data = (await res.json()) as { stops?: StopSummary[] };
     return Array.isArray(data.stops) ? data.stops : [];

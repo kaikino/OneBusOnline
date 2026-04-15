@@ -13,17 +13,33 @@ body,
   height: 100%;
   width: 100%;
   font-family: inherit;
+  /* Match CARTO Voyager's land background so any gaps between old/new tiles
+     blend in rather than flashing grey. */
+  background: #faf6f1 !important;
+}
+
+.leaflet-overlay-pane canvas {
+  pointer-events: none;
 }
 
 /*
- * Loading tiles use visibility:hidden until loaded. Those imgs are skipped for
- * hit-testing, so events fall through to the overlay pane. Leaflet's canvas
- * renderer sets _leaflet_disable_events on the canvas; Map._handleDOMEvent
- * then ignores mousedown/move — pan and some zoom feel "stuck" until tiles
- * appear. We use DOM markers only, so disable pointer capture on overlay canvas.
+ * Eliminate the tile flash on zoom:
+ * 1. Kill the CSS opacity transition Leaflet adds when tiles fade in.
+ * 2. Force all tiles (including freshly loaded) to full opacity immediately
+ *    so old zoom-level tiles behind them don't bleed through.
+ * 3. Keep old tile containers visible (don't hide via visibility) so they
+ *    serve as placeholders until new tiles load.
  */
-.leaflet-overlay-pane canvas {
-  pointer-events: none;
+.leaflet-tile-container .leaflet-tile {
+  transition: none !important;
+  opacity: 1 !important;
+}
+
+/* Prevent Leaflet from hiding tiles at other zoom levels during transitions.
+   Combined with keepBuffer the old scaled tiles stay visible as a backdrop. */
+.leaflet-tile-pane .leaflet-tile-container {
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 path.map-stop-marker {

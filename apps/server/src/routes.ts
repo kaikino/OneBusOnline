@@ -3,10 +3,23 @@ import { z } from "zod";
 import type { ObaService } from "./obaService.js";
 import { mergeAllCachedStopLists, stopListCacheBackend } from "./stopListCache.js";
 
-export async function stopsSnapshot(_req: Request, res: Response): Promise<void> {
+const snapshotBboxQuery = z
+  .object({
+    minLat: z.coerce.number(),
+    minLon: z.coerce.number(),
+    maxLat: z.coerce.number(),
+    maxLon: z.coerce.number(),
+  })
+  .optional();
+
+export async function stopsSnapshot(req: Request, res: Response): Promise<void> {
   try {
-    const stops = await mergeAllCachedStopLists();
-    res.setHeader("Cache-Control", "no-store");
+    const parsed = snapshotBboxQuery.safeParse(
+      req.query.minLat !== undefined ? req.query : undefined
+    );
+    const bbox = parsed.success ? parsed.data : undefined;
+    const stops = await mergeAllCachedStopLists(bbox);
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
     res.json({ stops, stopListCache: stopListCacheBackend() });
   } catch (e) {
     res.status(500).json({

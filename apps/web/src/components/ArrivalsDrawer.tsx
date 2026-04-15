@@ -65,6 +65,8 @@ export function ArrivalsDrawer(props: {
   stop: StopSummary | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Increment to collapse from expanded to preview mode. */
+  collapseSeq?: number;
   nowMs: number;
 }) {
   const stopId = props.stop?.id ?? "";
@@ -101,6 +103,15 @@ export function ArrivalsDrawer(props: {
     setDragging(false);
   }, [stopId]);
 
+  useEffect(() => {
+    if (!props.collapseSeq || !props.open) return;
+    if (expandedRef.current) {
+      expandedRef.current = false;
+      setExpanded(false);
+      setTranslateY(previewRestY());
+    }
+  }, [props.collapseSeq, props.open]);
+
   // Outside tap: expanded -> preview, preview -> close.
   // Only fires on clean taps (no drag/scroll/zoom).
   const outsideDownRef = useRef<{ x: number; y: number } | null>(null);
@@ -110,7 +121,16 @@ export function ArrivalsDrawer(props: {
       const panel = panelRef.current;
       if (!panel) return false;
       if (!(e.target instanceof Node)) return false;
-      return !panel.contains(e.target);
+      if (panel.contains(e.target)) return false;
+      // Don't treat taps on UI controls (buttons, search, zoom, locate
+      // error toast) as "outside" taps that should close/collapse the panel.
+      if (
+        (e.target as Element).closest?.(
+          "button, .leaflet-control, input, [data-ui-control]"
+        )
+      )
+        return false;
+      return true;
     };
     const onDown = (e: PointerEvent) => {
       if (isOutside(e)) {

@@ -87,8 +87,8 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
 }
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
-const MIN_ZOOM_SHOW_STOPS = 10;
-const MIN_ZOOM_FETCH_STOPS = 15;
+const MIN_ZOOM_SHOW_STOPS = 0;
+const MIN_ZOOM_FETCH_STOPS = 13;
 
 /** FNV-1a 32-bit hash — fast, stable, good distribution for thinning. */
 function fnv1a(str: string): number {
@@ -106,17 +106,18 @@ function fnv1a(str: string): number {
  * Below that, thin proportionally down to a small fraction.
  */
 function stopVisibilityPct(zoom: number): number {
-  if (zoom >= MIN_ZOOM_FETCH_STOPS) return 100;
-  if (zoom >= 14) return 60;
-  if (zoom >= 13) return 30;
-  if (zoom >= 12) return 12;
+  if (zoom >= 14) return 100;
+  if (zoom >= 13.5) return 50;
+  if (zoom >= 13) return 25;
+  if (zoom >= 12) return 10;
   if (zoom >= 11) return 5;
-  return 2;
+
+  return 1;
 }
 const TRACKPAD_SCROLL_ZOOM_SPEED = 0.008;
 const MOUSE_WHEEL_ZOOM_SPEED = 0.003;
 const PINCH_ZOOM_SPEED = 0.03;
-const WHEEL_SETTLE_MS = 150;
+
 
 type ViewportBbox = {
   minLat: number;
@@ -208,65 +209,84 @@ function ViewportReporter({
   return null;
 }
 
+/**
+ * Leaflet's ZoomControl uses `===` to compare zoom with min/max, which
+ * doesn't work with fractional zoom (zoomSnap=0).  Rather than trying to
+ * monkey-patch the control, we find the actual button DOM elements and
+ * toggle the disabled class ourselves on every zoom change.
+ */
+function ZoomControlFix() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const zoomIn = container.querySelector(
+      ".leaflet-control-zoom-in"
+    ) as HTMLElement | null;
+    const zoomOut = container.querySelector(
+      ".leaflet-control-zoom-out"
+    ) as HTMLElement | null;
+    if (!zoomIn || !zoomOut) return;
+
+    const CLS = "leaflet-disabled";
+    let animZoom: number | null = null;
+
+    function sync() {
+      const zoom = animZoom ?? map.getZoom();
+      animZoom = null;
+      const atMax = zoom >= map.getMaxZoom();
+      const atMin = zoom <= map.getMinZoom();
+      zoomIn!.classList.toggle(CLS, atMax);
+      zoomIn!.setAttribute("aria-disabled", String(atMax));
+      zoomOut!.classList.toggle(CLS, atMin);
+      zoomOut!.setAttribute("aria-disabled", String(atMin));
+    }
+
+    function onZoomAnim(e: any) {
+      if (typeof e?.zoom === "number") animZoom = e.zoom;
+      sync();
+    }
+
+    sync();
+    map.on("zoom zoomend zoomlevelschange", sync);
+    map.on("zoomanim", onZoomAnim);
+    return () => {
+      map.off("zoom zoomend zoomlevelschange", sync);
+      map.off("zoomanim", onZoomAnim);
+    };
+  }, [map]);
+  return null;
+}
+
 function SmoothWheelZoom() {
   const map = useMap();
 
   useEffect(() => {
     let accumulatedZoomDelta = 0;
-    let isPinch = false;
     let mousePos: L.Point | null = null;
     let anchorLatLng: L.LatLng | null = null;
     let rafId: number | null = null;
-    let settleTimer: ReturnType<typeof setTimeout> | null = null;
-    let zooming = false;
-    let targetZoom = map.getZoom();
-    let targetCenter: L.LatLng | null = map.getCenter();
-
-    function beginZoom() {
-      if (zooming) return;
-      zooming = true;
-      targetZoom = map.getZoom();
-      targetCenter = map.getCenter();
-      // Do not set map._animatingZoom or leaflet-zoom-anim here. Leaflet uses
-      // _animatingZoom internally; if we set it, setView/zoomIn return early and
-      // ignore the new zoom until the flag clears — which breaks +/- buttons and
-      // other zoom inputs while tiles load or during wheel settle.
-    }
-
-    function endZoom() {
-      if (!zooming) return;
-      zooming = false;
-      if (targetCenter) {
-        map.setView(targetCenter, targetZoom, { animate: false });
-      } else if (mousePos) {
-        map.setZoomAround(mousePos, targetZoom, { animate: false });
-      }
-    }
 
     function apply() {
       rafId = null;
       if (!accumulatedZoomDelta || !mousePos || !anchorLatLng) return;
 
-      beginZoom();
-
       const delta = accumulatedZoomDelta;
       accumulatedZoomDelta = 0;
 
-      targetZoom = Math.max(
+      const newZoom = Math.max(
         map.getMinZoom(),
-        Math.min(map.getMaxZoom(), targetZoom + delta)
+        Math.min(map.getMaxZoom(), map.getZoom() + delta)
       );
 
       const viewHalf = map.getSize().divideBy(2);
-      // Keep the geo point under the cursor fixed at `mousePos` for this target zoom.
-      const anchorProjected = map.project(anchorLatLng, targetZoom);
+      const anchorProjected = map.project(anchorLatLng, newZoom);
       const centerProjected = anchorProjected.subtract(mousePos).add(viewHalf);
-      targetCenter = map.unproject(centerProjected, targetZoom);
+      const newCenter = map.unproject(centerProjected, newZoom);
 
-      map.fire("zoomanim", { center: targetCenter, zoom: targetZoom, noUpdate: true });
-
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(endZoom, WHEEL_SETTLE_MS);
+      // Commit immediately so map._zoom, getCenter(), and pixel
+      // origins always match the visual state.  This prevents
+      // teleports when the user pans right after a wheel zoom.
+      map.setView(newCenter, newZoom, { animate: false });
     }
 
     function onWheel(e: WheelEvent) {
@@ -278,7 +298,7 @@ function SmoothWheelZoom() {
           : e.deltaMode === 2
             ? e.deltaY * 60
             : e.deltaY;
-      isPinch = e.ctrlKey;
+      const isPinch = e.ctrlKey;
       const looksLikeMouseWheel =
         e.deltaMode !== 0 || (Math.abs(e.deltaY) >= 40 && Math.abs(e.deltaX) < 1);
       const speed = isPinch
@@ -297,8 +317,6 @@ function SmoothWheelZoom() {
     return () => {
       el.removeEventListener("wheel", onWheel);
       if (rafId !== null) cancelAnimationFrame(rafId);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (zooming) endZoom();
     };
   }, [map]);
 
@@ -327,8 +345,23 @@ function PinchToPan() {
     const el = map.getContainer();
     let wasPinching = false;
 
+    function clearBlockingState() {
+      const pane: HTMLElement | undefined = (map as any)._mapPane;
+      if (pane) pane.classList.remove("leaflet-zoom-anim");
+      el.classList.remove("leaflet-zoom-anim");
+      (map as any)._animatingZoom = false;
+      const draggable = (map as any).dragging?._draggable;
+      if ((leaflet as any).Draggable._dragging) {
+        if (draggable && (leaflet as any).Draggable._dragging === draggable) {
+          try { draggable.finishDrag(true); } catch (_) { /* noop */ }
+        }
+        (leaflet as any).Draggable._dragging = false;
+      }
+    }
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length >= 2) wasPinching = true;
+      clearBlockingState();
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -338,11 +371,8 @@ function PinchToPan() {
         // A finger was lifted after a pinch.  Temporarily disable
         // zoomAnimation so Leaflet's TouchZoom handler (which fires on
         // `document`, after this container handler) chooses `_resetView`
-        // instead of `_animateZoom`.  Restore on the next macrotask.
+        // instead of `_animateZoom`.
         map.options.zoomAnimation = false;
-        setTimeout(() => {
-          map.options.zoomAnimation = true;
-        }, 0);
       }
 
       if (e.touches.length === 1) {
@@ -359,17 +389,12 @@ function PinchToPan() {
           identifier: t.identifier,
         };
 
-        // Defer to next macrotask so (a) the current touchend finishes
-        // propagating — otherwise _onDown's new document-level touchend
-        // listener would catch THIS event — and (b) _resetView has
-        // already completed, leaving no blocking state.
         setTimeout(() => {
+          map.options.zoomAnimation = true;
+          clearBlockingState();
+
           const draggable = (map as any).dragging?._draggable;
           if (!draggable || !draggable._enabled) return;
-
-          el.classList.remove("leaflet-zoom-anim");
-          (map as any)._animatingZoom = false;
-          (leaflet as any).Draggable._dragging = false;
 
           draggable._onDown({
             type: "touchstart",
@@ -378,17 +403,40 @@ function PinchToPan() {
             preventDefault() {},
             stopPropagation() {},
           });
+
+          // Safety: if the remaining finger was lifted during the
+          // setTimeout delay, _onUp won't fire (wasn't registered yet).
+          // Schedule a cleanup to avoid leaving _dragging stuck.
+          const safetyId = setTimeout(() => {
+            if ((leaflet as any).Draggable._dragging === draggable && !draggable._moving) {
+              clearBlockingState();
+            }
+          }, 200);
+
+          const cancelSafety = () => {
+            clearTimeout(safetyId);
+            document.removeEventListener("touchmove", cancelSafety);
+          };
+          document.addEventListener("touchmove", cancelSafety, { once: true, passive: true });
         }, 0);
       } else {
+        if (e.touches.length < 2) {
+          // Both fingers lifted — restore zoomAnimation and clear
+          // blocking state so the next single-finger pan works.
+          setTimeout(() => {
+            map.options.zoomAnimation = true;
+            clearBlockingState();
+          }, 0);
+        }
         wasPinching = e.touches.length >= 2;
       }
     };
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
     el.addEventListener("touchend", onTouchEnd, { passive: true });
     el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchstart", onTouchStart, { capture: true } as EventListenerOptions);
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
     };
@@ -514,21 +562,16 @@ export function TransitMap(props: {
       (!lastNetworkBbox || !bboxContainsOuter(lastNetworkBbox, quantized))
   );
 
-  const fetchMode = zoomOkForFetch ? "full" : "cache";
-
   const stopsQuery = useQuery({
-    queryKey: ["stopsBbox", quantized, fetchMode],
+    queryKey: ["stopsBbox", quantized],
     queryFn: async () => {
-      const cacheOnly = !zoomOkForFetch;
-      const rows = await fetchStopsBbox(viewport!.bbox, { cacheOnly });
+      const rows = await fetchStopsBbox(viewport!.bbox, { cacheOnly: false });
       for (const s of rows) stopsMergedRef.current.set(s.id, s);
-      if (zoomOkForFetch || rows.length > 0) {
-        setLastNetworkBbox(quantizeBboxForCache(viewport!.bbox));
-      }
+      setLastNetworkBbox(quantizeBboxForCache(viewport!.bbox));
       setMergeEpoch((e) => e + 1);
       return rows;
     },
-    enabled: Boolean(viewport && viewportNeedsHydration && idbReady),
+    enabled: Boolean(viewport && zoomOkForFetch && viewportNeedsHydration && idbReady),
     staleTime: 5 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -576,13 +619,21 @@ export function TransitMap(props: {
       className="h-full w-full"
       scrollWheelZoom={false}
       zoomControl={false}
+      minZoom={3}
+      maxZoom={19}
+      maxBounds={[[-85, -180], [85, 180]]}
+      maxBoundsViscosity={1.0}
+      bounceAtZoomLimits={false}
       zoomSnap={0}
       zoomDelta={1}
     >
       <ZoomControl position="topright" />
+      <ZoomControlFix />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+        minZoom={2}
+        maxZoom={19}
         keepBuffer={6}
         updateWhenZooming={false}
         updateWhenIdle={false}

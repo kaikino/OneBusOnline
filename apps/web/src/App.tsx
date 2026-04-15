@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Crosshair, WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchAgencyCoverage } from "./api";
 import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
@@ -65,6 +65,7 @@ export default function App() {
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
   const [userLocateSeq, setUserLocateSeq] = useState(0);
+  const [collapseSeq, setCollapseSeq] = useState(0);
 
   const agenciesQuery = useQuery({
     queryKey: ["agencies", "coverage"],
@@ -111,8 +112,23 @@ export default function App() {
       setLocateError("Location is not supported on this device.");
       return;
     }
-    setLocating(true);
     setLocateError(null);
+
+    // If we already have a position, fly there immediately and refresh
+    // the position in the background (no spinner).
+    if (userLat !== undefined && userLon !== undefined) {
+      setFlyToLat(userLat);
+      setFlyToLon(userLon);
+      setUserLocateSeq((s) => s + 1);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => applyPosition(pos),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
+      );
+      return;
+    }
+
+    setLocating(true);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -143,6 +159,8 @@ export default function App() {
     );
   };
 
+  const locateErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showLocateError = async (err: GeolocationPositionError) => {
     const denied = geolocationPermissionDenied(err);
     const timedOut = geolocationTimedOut(err);
@@ -160,6 +178,8 @@ export default function App() {
       message = "Could not get your location. Try again.";
     }
     setLocateError(message);
+    if (locateErrorTimer.current) clearTimeout(locateErrorTimer.current);
+    locateErrorTimer.current = setTimeout(() => setLocateError(null), 3000);
   };
 
   useEffect(() => {
@@ -214,7 +234,10 @@ export default function App() {
         />
         <button
           type="button"
-          onClick={locate}
+          onClick={() => {
+            locate();
+            setCollapseSeq((s) => s + 1);
+          }}
           disabled={locating}
           title="Locate me"
           aria-label="Locate me"
@@ -259,6 +282,7 @@ export default function App() {
         onOpenChange={(o) => {
           if (!o) setSelected(null);
         }}
+        collapseSeq={collapseSeq}
         nowMs={nowMs}
       />
     </div>

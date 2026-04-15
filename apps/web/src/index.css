@@ -15,6 +15,17 @@ body,
   font-family: inherit;
 }
 
+/*
+ * Loading tiles use visibility:hidden until loaded. Those imgs are skipped for
+ * hit-testing, so events fall through to the overlay pane. Leaflet's canvas
+ * renderer sets _leaflet_disable_events on the canvas; Map._handleDOMEvent
+ * then ignores mousedown/move — pan and some zoom feel "stuck" until tiles
+ * appear. We use DOM markers only, so disable pointer capture on overlay canvas.
+ */
+.leaflet-overlay-pane canvas {
+  pointer-events: none;
+}
+
 path.map-stop-marker {
   cursor: pointer;
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));

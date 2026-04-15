@@ -186,8 +186,8 @@ export function ArrivalsDrawer(props: {
       const routeKey = row.routeId || row.routeShortName;
       if (seen.has(routeKey)) continue;
       const mins = minutesUntil(displayTimeMs(row), props.nowMs);
-      // Oldest previewed arrival is -2 min; skip stale rows at -3 min or older.
-      if (mins <= -2) continue;
+      // skip previous buses
+      if (mins <= -1) continue;
       seen.add(routeKey);
       out.push(row);
       if (out.length >= 6) break;
@@ -511,9 +511,9 @@ export function ArrivalsDrawer(props: {
 function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
-  const roundedMins = Math.round(mins);
-  const label = mins < 1 && mins >= 0 ? "<1 min" : `${roundedMins} min`;
-  const isOld = mins < 0;
+  const roundedMins = Math.trunc(mins);
+  const label = roundedMins === 0 ? "NOW" : mins < 1 && mins >= 0 ? "<1 min" : `${roundedMins} min`;
+  const isOld = mins <= -1;
 
   return (
     <div
@@ -530,9 +530,9 @@ function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
 function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
-  const roundedMins = Math.round(mins);
-  const label = mins < 1 && mins >= 0 ? "< 1 min" : `${roundedMins} min`;
-  const isOld = mins < 0;
+  const roundedMins = Math.trunc(mins);
+  const label = roundedMins === 0 ? "NOW" : mins < 1 && mins >= 0 ? "< 1 min" : `${roundedMins} min`;
+  const isOld = mins <= -1;
   const scheduledOnly = row.punctuality === "scheduled_only";
   const etaStatus = (() => {
     if (scheduledOnly) return "Scheduled";
@@ -550,7 +550,7 @@ function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
     return "Live";
   })();
   const arrivalClock = ARRIVAL_CLOCK.format(new Date(t));
-  const arrivalVerb = mins < 0 ? "Arrived" : "Arriving";
+  const arrivalVerb = mins <= -1 ? "Arrived" : "Arriving";
 
   return (
     <li className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${isOld ? "border-slate-800 bg-slate-900/60 text-slate-400" : "border-slate-800 bg-slate-900/80"}`}>

@@ -87,9 +87,32 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
 }
 const DEFAULT_CENTER: [number, number] = [47.6062, -122.3321];
 const DEFAULT_ZOOM = 13;
-/** Below this zoom we do not request new bbox data; already-loaded stops still render. */
-const MIN_ZOOM_SHOW_STOPS = 13;
+const MIN_ZOOM_SHOW_STOPS = 10;
 const MIN_ZOOM_FETCH_STOPS = 15;
+
+/** FNV-1a 32-bit hash — fast, stable, good distribution for thinning. */
+function fnv1a(str: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * Percentage of stops to show at a given zoom level.
+ * At the fetch threshold and above, show 100%.
+ * Below that, thin proportionally down to a small fraction.
+ */
+function stopVisibilityPct(zoom: number): number {
+  if (zoom >= MIN_ZOOM_FETCH_STOPS) return 100;
+  if (zoom >= 14) return 60;
+  if (zoom >= 13) return 30;
+  if (zoom >= 12) return 12;
+  if (zoom >= 11) return 5;
+  return 2;
+}
 const TRACKPAD_SCROLL_ZOOM_SPEED = 0.008;
 const MOUSE_WHEEL_ZOOM_SPEED = 0.003;
 const PINCH_ZOOM_SPEED = 0.03;
@@ -185,11 +208,6 @@ function ViewportReporter({
   return null;
 }
 
-type MapZoomInternals = L.Map & {
-  _animatingZoom?: boolean;
-  _mapPane?: HTMLElement;
-};
-
 function SmoothWheelZoom() {
   const map = useMap();
 
@@ -203,22 +221,21 @@ function SmoothWheelZoom() {
     let zooming = false;
     let targetZoom = map.getZoom();
     let targetCenter: L.LatLng | null = map.getCenter();
-    const m = map as MapZoomInternals;
 
     function beginZoom() {
       if (zooming) return;
       zooming = true;
       targetZoom = map.getZoom();
       targetCenter = map.getCenter();
-      m._animatingZoom = true;
-      m._mapPane?.classList.add("leaflet-zoom-anim");
+      // Do not set map._animatingZoom or leaflet-zoom-anim here. Leaflet uses
+      // _animatingZoom internally; if we set it, setView/zoomIn return early and
+      // ignore the new zoom until the flag clears — which breaks +/- buttons and
+      // other zoom inputs while tiles load or during wheel settle.
     }
 
     function endZoom() {
       if (!zooming) return;
       zooming = false;
-      m._animatingZoom = false;
-      m._mapPane?.classList.remove("leaflet-zoom-anim");
       if (targetCenter) {
         map.setView(targetCenter, targetZoom, { animate: false });
       } else if (mousePos) {
@@ -282,6 +299,98 @@ function SmoothWheelZoom() {
       if (rafId !== null) cancelAnimationFrame(rafId);
       if (settleTimer) clearTimeout(settleTimer);
       if (zooming) endZoom();
+    };
+  }, [map]);
+
+  return null;
+}
+
+/**
+ * Two responsibilities:
+ *
+ * 1. **Prevent TouchZoom from using `_animateZoom`** — which sets
+ *    `_animatingZoom = true` and blocks all subsequent drag/pan until a
+ *    CSS transitionend or 250 ms timeout fires.  We temporarily flip
+ *    `map.options.zoomAnimation` to `false` on the container-level
+ *    `touchend` so that by the time TouchZoom's document-level handler
+ *    runs, it takes the `_resetView` branch instead.
+ *
+ * 2. **Seamless pinch-to-pan** — when the user lifts one finger after a
+ *    two-finger pinch, immediately begin panning with the remaining
+ *    finger by invoking Leaflet's `Draggable._onDown` directly (Safari
+ *    doesn't support the `TouchEvent` constructor).
+ */
+function PinchToPan() {
+  const map = useMap();
+
+  useEffect(() => {
+    const el = map.getContainer();
+    let wasPinching = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) wasPinching = true;
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!wasPinching) return;
+
+      if (e.touches.length < 2) {
+        // A finger was lifted after a pinch.  Temporarily disable
+        // zoomAnimation so Leaflet's TouchZoom handler (which fires on
+        // `document`, after this container handler) chooses `_resetView`
+        // instead of `_animateZoom`.  Restore on the next macrotask.
+        map.options.zoomAnimation = false;
+        setTimeout(() => {
+          map.options.zoomAnimation = true;
+        }, 0);
+      }
+
+      if (e.touches.length === 1) {
+        wasPinching = false;
+
+        const t = e.touches[0];
+        const touchSnapshot = {
+          pageX: t.pageX,
+          pageY: t.pageY,
+          clientX: t.clientX,
+          clientY: t.clientY,
+          screenX: t.screenX,
+          screenY: t.screenY,
+          identifier: t.identifier,
+        };
+
+        // Defer to next macrotask so (a) the current touchend finishes
+        // propagating — otherwise _onDown's new document-level touchend
+        // listener would catch THIS event — and (b) _resetView has
+        // already completed, leaving no blocking state.
+        setTimeout(() => {
+          const draggable = (map as any).dragging?._draggable;
+          if (!draggable || !draggable._enabled) return;
+
+          el.classList.remove("leaflet-zoom-anim");
+          (map as any)._animatingZoom = false;
+          (leaflet as any).Draggable._dragging = false;
+
+          draggable._onDown({
+            type: "touchstart",
+            touches: [touchSnapshot],
+            target: el,
+            preventDefault() {},
+            stopPropagation() {},
+          });
+        }, 0);
+      } else {
+        wasPinching = e.touches.length >= 2;
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [map]);
 
@@ -442,11 +551,15 @@ export function TransitMap(props: {
   const stopsToPlot = useMemo(() => {
     if (!viewport || viewport.zoom < MIN_ZOOM_SHOW_STOPS) return [];
     const { minLat, maxLat, minLon, maxLon } = viewport.bbox;
-    return [...stopsMergedRef.current.values()].filter(
-      (s) =>
-        s.lat >= minLat && s.lat <= maxLat && s.lon >= minLon && s.lon <= maxLon
-    );
-  }, [viewport, mergeEpoch]);
+    const pct = stopVisibilityPct(viewport.zoom);
+    const selectedId = props.selectedStop?.id;
+    return [...stopsMergedRef.current.values()].filter((s) => {
+      if (s.lat < minLat || s.lat > maxLat || s.lon < minLon || s.lon > maxLon)
+        return false;
+      if (pct >= 100 || s.id === selectedId) return true;
+      return fnv1a(s.id) % 100 < pct;
+    });
+  }, [viewport, mergeEpoch, props.selectedStop?.id]);
 
   const stopsLoading = viewportNeedsHydration && stopsQuery.isFetching;
 
@@ -463,7 +576,6 @@ export function TransitMap(props: {
       className="h-full w-full"
       scrollWheelZoom={false}
       zoomControl={false}
-      preferCanvas
       zoomSnap={0}
       zoomDelta={1}
     >
@@ -476,6 +588,7 @@ export function TransitMap(props: {
         updateWhenIdle={false}
       />
       <SmoothWheelZoom />
+      <PinchToPan />
       <ViewportReporter onViewportChange={onViewportChange} />
       {flyTarget}
       {props.userLat !== undefined && props.userLon !== undefined ? (

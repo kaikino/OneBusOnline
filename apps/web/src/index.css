@@ -11,6 +11,8 @@ body,
 
 .leaflet-container {
   font-family: inherit;
+  /* Matches the basemap's land color so unloaded tiles don't flash grey. */
+  background: #faf6f1;
 }
 
 /* Map markers: a dot, plus an arrow orbiting it when the heading is known. */

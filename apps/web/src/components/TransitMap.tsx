@@ -174,11 +174,16 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
       maxZoom={19}
       zoomSnap={0}
       wheelPxPerZoomLevel={120}
+      maxBounds={[
+        [-85, -180],
+        [85, 180],
+      ]}
+      maxBoundsViscosity={1}
       zoomControl={false}
       className="h-full w-full"
     >
       <ZoomControl position="topright" />
-      <TileLayer attribution={ATTRIBUTION} url={TILE_URL} />
+      <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
       <ViewportReporter onChange={setViewport} />
       {userPosition && (
         <Marker

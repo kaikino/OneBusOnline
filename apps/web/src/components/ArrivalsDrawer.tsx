@@ -365,7 +365,7 @@ export function ArrivalsDrawer({ stop, expanded, onSnap }: Props) {
               </button>
             </>
           ) : (
-            <div className="flex gap-2 overflow-hidden">
+            <div className="scrollbar-none flex gap-2 overflow-x-auto">
               {nextPerRoute(arrivals, now).map((arrival) => (
                 <ArrivalChip key={routeKey(arrival)} arrival={arrival} now={now} />
               ))}

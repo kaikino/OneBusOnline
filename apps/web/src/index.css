@@ -15,6 +15,13 @@ body,
   background: #faf6f1;
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Map markers: a dot, plus an arrow orbiting it when the heading is known. */
 .marker {
   --color: #0ea5e9;

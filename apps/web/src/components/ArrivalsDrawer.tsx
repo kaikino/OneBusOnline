@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { StopSummary } from "@onebus/shared";
 import { Bus, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ARRIVALS_EXTEND_STEP_MIN,
   ARRIVALS_QUERY_WINDOW,
@@ -21,35 +21,25 @@ const ARRIVAL_CLOCK = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
-const PREVIEW_HEIGHT_PX = 148;
+const PREVIEW_HEIGHT_PX = 132;
 const EXPANDED_VH = 0.74;
 const VELOCITY_THRESHOLD = 0.4;
+const CLOSE_VELOCITY_THRESHOLD = 0.6;
 
 function expandedHeightPx(): number {
   return Math.round(window.innerHeight * EXPANDED_VH);
 }
 
-/**
- * The panel always has the expanded height. In "preview" mode it's pushed down
- * so only PREVIEW_HEIGHT_PX is visible. This offset is the resting translateY
- * for preview mode.
- */
-function previewRestY(): number {
-  return expandedHeightPx() - PREVIEW_HEIGHT_PX;
+function previewRestY(previewH: number): number {
+  return expandedHeightPx() - previewH;
 }
 
-/** Release threshold: midpoint between expanded rest (0) and preview rest. */
-function releaseSwitchY(): number {
-  return previewRestY() / 2;
+function releaseSwitchY(previewH: number): number {
+  return previewRestY(previewH) / 2;
 }
 
-/**
- * Additional close threshold for preview mode.
- * If the panel is being dragged from preview and released below this line,
- * we close the drawer instead of snapping back to preview.
- */
-function previewCloseY(): number {
-  return Math.min(expandedHeightPx(), previewRestY() + 88);
+function previewCloseY(previewH: number): number {
+  return Math.min(expandedHeightPx(), previewRestY(previewH) + 88);
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -68,18 +58,25 @@ export function ArrivalsDrawer(props: {
   /** Increment to collapse from expanded to preview mode. */
   collapseSeq?: number;
   nowMs: number;
+  onPreviewHeightChange?: (height: number) => void;
 }) {
   const stopId = props.stop?.id ?? "";
   const before = ARRIVALS_QUERY_WINDOW.minutesBefore;
 
-  // `expanded` only controls which content to show (chips vs full list).
-  // The panel height is always expandedHeightPx().
-  // In preview mode, translateY = previewRestY() (pushed down).
-  // In expanded mode, translateY = 0.
   const [expanded, setExpanded] = useState(false);
-  const [translateY, setTranslateY] = useState(previewRestY);
   const [dragging, setDragging] = useState(false);
+  const [closing, setClosing] = useState(false);
 
+  const ph = () => PREVIEW_HEIGHT_PX;
+
+  const [translateY, setTranslateY] = useState(() => previewRestY(PREVIEW_HEIGHT_PX));
+
+  useEffect(() => {
+    props.onPreviewHeightChange?.(PREVIEW_HEIGHT_PX);
+  }, []);
+
+  const translateYRef = useRef(translateY);
+  translateYRef.current = translateY;
   const expandedRef = useRef(false);
   const draggingRef = useRef(false);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -91,30 +88,78 @@ export function ArrivalsDrawer(props: {
   const scrollPointerStartY = useRef<number | null>(null);
   const scrollTakeover = useRef(false);
 
+  const chipsRef = useRef<HTMLDivElement | null>(null);
+  const chipsGesture = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft0: number;
+    decided: "h" | "v" | null;
+    didScrollH: boolean;
+  } | null>(null);
+  const chipsDocCleanup = useRef<(() => void) | null>(null);
+  const chipsDragActive = useRef(false);
+
+  const closingRef = useRef(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    closingRef.current = false;
+    setClosing(false);
+  }, []);
+
+  const animateClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    setDragging(false);
+    draggingRef.current = false;
+    setTranslateY(expandedHeightPx() + 40);
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      closingRef.current = false;
+      setClosing(false);
+      props.onOpenChange(false);
+    }, 500);
+  }, [props.onOpenChange]);
+
   const [minutesAfterLimit, setMinutesAfterLimit] = useState(
     ARRIVALS_QUERY_WINDOW.minutesAfter,
   );
 
   useEffect(() => {
+    cancelClose();
     setMinutesAfterLimit(ARRIVALS_QUERY_WINDOW.minutesAfter);
     setExpanded(false);
     expandedRef.current = false;
-    setTranslateY(previewRestY());
+    setTranslateY(previewRestY(ph()));
     setDragging(false);
-  }, [stopId]);
+    outsideDownRef.current = null;
+  }, [stopId, cancelClose]);
 
   useEffect(() => {
     if (!props.collapseSeq || !props.open) return;
     if (expandedRef.current) {
       expandedRef.current = false;
       setExpanded(false);
-      setTranslateY(previewRestY());
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTranslateY(previewRestY(ph()));
+        });
+      });
     }
   }, [props.collapseSeq, props.open]);
 
   // Outside tap: expanded -> preview, preview -> close.
   // Only fires on clean taps (no drag/scroll/zoom).
-  const outsideDownRef = useRef<{ x: number; y: number } | null>(null);
+  const outsideDownRef = useRef<{ x: number; y: number; stopId: string } | null>(null);
+  const stopIdRef = useRef(stopId);
+  stopIdRef.current = stopId;
+
   useEffect(() => {
     if (!props.open) return;
     const isOutside = (e: PointerEvent) => {
@@ -122,8 +167,6 @@ export function ArrivalsDrawer(props: {
       if (!panel) return false;
       if (!(e.target instanceof Node)) return false;
       if (panel.contains(e.target)) return false;
-      // Don't treat taps on UI controls (buttons, search, zoom, locate
-      // error toast) as "outside" taps that should close/collapse the panel.
       if (
         (e.target as Element).closest?.(
           "button, .leaflet-control, input, [data-ui-control]"
@@ -134,7 +177,7 @@ export function ArrivalsDrawer(props: {
     };
     const onDown = (e: PointerEvent) => {
       if (isOutside(e)) {
-        outsideDownRef.current = { x: e.clientX, y: e.clientY };
+        outsideDownRef.current = { x: e.clientX, y: e.clientY, stopId: stopIdRef.current };
       } else {
         outsideDownRef.current = null;
       }
@@ -143,16 +186,21 @@ export function ArrivalsDrawer(props: {
       const start = outsideDownRef.current;
       outsideDownRef.current = null;
       if (!start) return;
+      if (start.stopId !== stopIdRef.current) return;
       if (!isOutside(e)) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      if (dx * dx + dy * dy > 10 * 10) return; // moved too much — drag/scroll
+      if (dx * dx + dy * dy > 10 * 10) return;
       if (expandedRef.current) {
         expandedRef.current = false;
         setExpanded(false);
-        setTranslateY(previewRestY());
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTranslateY(previewRestY(ph()));
+          });
+        });
       } else {
-        props.onOpenChange(false);
+        animateClose();
       }
     };
     document.addEventListener("pointerdown", onDown);
@@ -161,7 +209,7 @@ export function ArrivalsDrawer(props: {
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("pointerup", onUp);
     };
-  }, [props.open, props.onOpenChange]);
+  }, [props.open, props.onOpenChange, animateClose]);
 
   // --- Data fetching ---
   const query = useQuery({
@@ -187,6 +235,16 @@ export function ArrivalsDrawer(props: {
     }
   }, [query.data, stopId, minutesAfterLimit, before]);
 
+  const [manualSpinning, setManualSpinning] = useState(false);
+  const spinning = query.isFetching || manualSpinning;
+
+  const handleRefetch = async () => {
+    setManualSpinning(true);
+    const minSpin = new Promise((r) => setTimeout(r, 600));
+    await Promise.all([query.refetch(), minSpin]);
+    setManualSpinning(false);
+  };
+
   const nextMinutesAfter = minutesAfterLimit + ARRIVALS_EXTEND_STEP_MIN;
   const nextHours = nextMinutesAfter / 60;
   const nextHoursLabel = Number.isInteger(nextHours)
@@ -203,14 +261,12 @@ export function ArrivalsDrawer(props: {
     const out: typeof rows = [];
     const seen = new Set<string>();
     for (const row of rows) {
-      const routeKey = row.routeId || row.routeShortName;
+      const routeKey = `${row.routeId || row.routeShortName}::${row.headsign || ""}`;
       if (seen.has(routeKey)) continue;
       const mins = minutesUntil(displayTimeMs(row), props.nowMs);
-      // skip previous buses
       if (mins <= -1) continue;
       seen.add(routeKey);
       out.push(row);
-      if (out.length >= 6) break;
     }
     return out;
   }, [rows, props.nowMs]);
@@ -227,14 +283,14 @@ export function ArrivalsDrawer(props: {
       : "";
 
   // --- Drag helpers ---
-  const beginDrag = (clientY: number, timeStamp: number, pointerId: number, el: Element) => {
+  const beginDrag = (clientY: number, timeStamp: number, pointerId: number, el: Element | null, skipDragState = false) => {
     dragStartYRef.current = clientY;
-    dragBaseTranslateRef.current = translateY;
+    dragBaseTranslateRef.current = translateYRef.current;
     pointerIdRef.current = pointerId;
     pointerHistoryRef.current = [{ y: clientY, t: timeStamp }];
     draggingRef.current = true;
-    setDragging(true);
-    el.setPointerCapture(pointerId);
+    if (!skipDragState) setDragging(true);
+    if (el) el.setPointerCapture(pointerId);
   };
 
   const applyDrag = (clientY: number, timeStamp: number) => {
@@ -243,12 +299,16 @@ export function ArrivalsDrawer(props: {
     // Clamp: can't drag above expanded rest (0) or below off-screen
     const clamped = Math.max(-40, Math.min(expandedHeightPx(), rawTranslate));
 
-    // Switch content mid-drag based on position
-    const switchY = previewRestY();
-    const shouldExpand = clamped < switchY;
-    if (shouldExpand !== expandedRef.current) {
-      expandedRef.current = shouldExpand;
-      setExpanded(shouldExpand);
+    // Don't switch expanded state during a chips-initiated drag — changing
+    // overflow/touch-action CSS mid-gesture causes the browser to steal the
+    // touch for native scrolling, killing our document listeners.
+    if (!chipsDragActive.current) {
+      const switchY = previewRestY(ph());
+      const shouldExpand = clamped < switchY;
+      if (shouldExpand !== expandedRef.current) {
+        expandedRef.current = shouldExpand;
+        setExpanded(shouldExpand);
+      }
     }
 
     const hist = pointerHistoryRef.current;
@@ -266,7 +326,16 @@ export function ArrivalsDrawer(props: {
 
     const finalTranslate = dragBaseTranslateRef.current + (clientY - dragStartYRef.current);
     const clamped = Math.max(-40, Math.min(expandedHeightPx(), finalTranslate));
-    const startedFromPreview = dragBaseTranslateRef.current >= previewRestY() - 1;
+    const startedFromPreview = dragBaseTranslateRef.current >= previewRestY(ph()) - 1;
+
+    // Velocity-based close: fast flick down from preview closes the panel
+    if (startedFromPreview && velocity > CLOSE_VELOCITY_THRESHOLD) {
+      pointerHistoryRef.current = [];
+      pointerIdRef.current = null;
+      setTranslateY(clamped);
+      animateClose();
+      return;
+    }
 
     let targetExpanded: boolean;
     if (velocity > VELOCITY_THRESHOLD) {
@@ -274,15 +343,15 @@ export function ArrivalsDrawer(props: {
     } else if (velocity < -VELOCITY_THRESHOLD) {
       targetExpanded = true;
     } else {
-      targetExpanded = clamped < releaseSwitchY();
+      targetExpanded = clamped < releaseSwitchY(ph());
     }
 
-    // Preview-only close gesture: release well below preview rest.
-    if (!targetExpanded && startedFromPreview && clamped >= previewCloseY()) {
+    // Position-based close: released well below preview rest
+    if (!targetExpanded && startedFromPreview && clamped >= previewCloseY(ph())) {
       pointerHistoryRef.current = [];
-      draggingRef.current = false;
-      setDragging(false);
-      props.onOpenChange(false);
+      pointerIdRef.current = null;
+      setTranslateY(clamped);
+      animateClose();
       return;
     }
 
@@ -290,15 +359,15 @@ export function ArrivalsDrawer(props: {
     setExpanded(targetExpanded);
 
     pointerHistoryRef.current = [];
+    pointerIdRef.current = null;
     draggingRef.current = false;
 
-    // Set translateY to current position, enable transition, then animate to rest
     setTranslateY(clamped);
     setDragging(false);
 
-    const restY = targetExpanded ? 0 : previewRestY();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        const restY = targetExpanded ? 0 : previewRestY(ph());
         setTranslateY(restY);
       });
     });
@@ -312,12 +381,14 @@ export function ArrivalsDrawer(props: {
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (chipsDragActive.current) return;
     if (pointerIdRef.current !== e.pointerId) return;
     e.preventDefault();
     applyDrag(e.clientY, e.timeStamp);
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLElement>) => {
+    if (chipsDragActive.current) return;
     if (pointerIdRef.current == null) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -332,7 +403,7 @@ export function ArrivalsDrawer(props: {
     scrollTakeover.current = false;
     draggingRef.current = false;
     setDragging(false);
-    setTranslateY(expandedRef.current ? 0 : previewRestY());
+    setTranslateY(expandedRef.current ? 0 : previewRestY(ph()));
   };
 
   // --- Scroll-area: intercept overscroll at boundaries via touch events ---
@@ -341,12 +412,14 @@ export function ArrivalsDrawer(props: {
     if (!scroller || !props.open) return;
 
     const onTouchStart = (e: TouchEvent) => {
+      if (chipsDragActive.current || chipsGesture.current) return;
       if (e.touches.length !== 1) return;
       scrollPointerStartY.current = e.touches[0].clientY;
       scrollTakeover.current = false;
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (chipsDragActive.current || chipsGesture.current) return;
       if (e.touches.length !== 1) return;
       const clientY = e.touches[0].clientY;
       const now = e.timeStamp;
@@ -367,13 +440,14 @@ export function ArrivalsDrawer(props: {
         draggingRef.current = true;
         e.preventDefault();
         dragStartYRef.current = clientY;
-        dragBaseTranslateRef.current = translateY;
+        dragBaseTranslateRef.current = translateYRef.current;
         pointerHistoryRef.current = [{ y: clientY, t: now }];
         setDragging(true);
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (chipsDragActive.current || chipsGesture.current) { scrollPointerStartY.current = null; return; }
       if (scrollTakeover.current) {
         scrollTakeover.current = false;
         scrollPointerStartY.current = null;
@@ -394,22 +468,135 @@ export function ArrivalsDrawer(props: {
       scroller.removeEventListener("touchend", onTouchEnd);
       scroller.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [props.open, translateY]);
+  }, [props.open]);
 
-  if (!props.open) return null;
+  const CHIPS_DIR_THRESHOLD = 6;
+
+  const cleanupChipsDoc = () => {
+    if (chipsDocCleanup.current) {
+      chipsDocCleanup.current();
+      chipsDocCleanup.current = null;
+    }
+  };
+
+  const startChipsVerticalDrag = (g: NonNullable<typeof chipsGesture.current>, clientY: number, timeStamp: number) => {
+    chipsDragActive.current = true;
+    expandedRef.current = false;
+    setExpanded(false);
+    beginDrag(g.startY, timeStamp, g.pointerId, null, true);
+    dragBaseTranslateRef.current = previewRestY(ph());
+    applyDrag(clientY, timeStamp);
+
+    const onDocMove = (ev: TouchEvent) => {
+      const gg = chipsGesture.current;
+      if (!gg) return;
+      const tt = Array.from(ev.touches).find((x) => x.identifier === gg.pointerId);
+      if (!tt) return;
+      ev.preventDefault();
+      applyDrag(tt.clientY, ev.timeStamp);
+    };
+    const onDocEnd = (ev: TouchEvent) => {
+      const gg = chipsGesture.current;
+      if (!gg) return;
+      const lifted = Array.from(ev.changedTouches).find((x) => x.identifier === gg.pointerId);
+      if (!lifted) return;
+      chipsGesture.current = null;
+      chipsDragActive.current = false;
+      finishDrag(lifted.clientY, ev.timeStamp);
+      cleanupChipsDoc();
+    };
+
+    document.addEventListener("touchmove", onDocMove, { passive: false });
+    document.addEventListener("touchend", onDocEnd, { passive: true });
+
+    chipsDocCleanup.current = () => {
+      document.removeEventListener("touchmove", onDocMove);
+      document.removeEventListener("touchend", onDocEnd);
+    };
+  };
+
+  useEffect(() => {
+    const el = chipsRef.current;
+    if (!el || expanded) return;
+
+    const onStart = (e: TouchEvent) => {
+      if (chipsGesture.current) return;
+      cleanupChipsDoc();
+      const t = e.touches[0];
+      chipsGesture.current = {
+        pointerId: t.identifier,
+        startX: t.clientX,
+        startY: t.clientY,
+        scrollLeft0: el.scrollLeft,
+        decided: null,
+        didScrollH: false,
+      };
+    };
+
+    const onMove = (e: TouchEvent) => {
+      const g = chipsGesture.current;
+      if (!g || g.decided === "v") return;
+      const t = Array.from(e.touches).find((tt) => tt.identifier === g.pointerId);
+      if (!t) return;
+
+      const dx = t.clientX - g.startX;
+      const dy = t.clientY - g.startY;
+
+      if (!g.decided) {
+        if (Math.abs(dx) >= CHIPS_DIR_THRESHOLD || Math.abs(dy) >= CHIPS_DIR_THRESHOLD) {
+          g.decided = g.didScrollH || Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+          if (g.decided === "v") {
+            e.preventDefault();
+            startChipsVerticalDrag(g, t.clientY, e.timeStamp);
+            return;
+          }
+        }
+        if (g.decided === "h") e.preventDefault();
+        return;
+      }
+
+      if (g.decided === "h") {
+        e.preventDefault();
+        g.didScrollH = true;
+        el.scrollLeft = g.scrollLeft0 - dx;
+      }
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      const g = chipsGesture.current;
+      if (!g || g.decided === "v") return;
+      const lifted = Array.from(e.changedTouches).find((tt) => tt.identifier === g.pointerId);
+      if (!lifted) return;
+      chipsGesture.current = null;
+    };
+
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    el.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+  }, [expanded, props.open]);
+
+  if (!props.open && !closing) return null;
 
   const panelHeight = expandedHeightPx();
 
   return (
-    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-[2001]">
+    <div className="pointer-events-none fixed left-0 right-0 z-[2001]" style={{ bottom: `env(safe-area-inset-bottom, 0px)` }}>
       <section
         ref={panelRef}
         style={{
           height: panelHeight,
           transform: `translateY(${translateY}px)`,
+          paddingBottom: `max(1rem, env(safe-area-inset-bottom, 0px))`,
         }}
-        className={`pointer-events-auto relative flex flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pt-2 pb-4 outline-none will-change-transform ${
-          dragging ? "" : "transition-transform duration-500 ease-out"
+        className={`pointer-events-auto relative flex flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pt-2 outline-none will-change-transform ${
+          dragging || draggingRef.current ? "" : "transition-transform duration-500 ease-out"
         }`}
       >
         {/* Background extension so map never peeks through */}
@@ -427,16 +614,22 @@ export function ArrivalsDrawer(props: {
             <div className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-slate-600" />
           </div>
           <div className="flex items-start justify-between gap-2 pr-1">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-50">
+            <h2 className={`flex items-center gap-2 text-lg font-semibold text-slate-50 ${!expanded ? "min-w-0 truncate" : ""}`}>
               <Bus className="h-5 w-5 shrink-0 text-sky-400" aria-hidden />
-              {props.stop?.name ?? "Stop"}
+              <span className={!expanded ? "truncate" : undefined}>{props.stop?.name ?? "Stop"}</span>
             </h2>
-            {query.isFetching && !query.isPending ? (
+            <button
+              type="button"
+              onClick={handleRefetch}
+              disabled={spinning}
+              className="relative z-20 mt-0.5 shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+              aria-label="Refresh arrivals"
+            >
               <RefreshCw
-                className="mt-1 h-4 w-4 shrink-0 animate-spin text-slate-500"
-                aria-label="Refreshing"
+                className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`}
+                aria-hidden
               />
-            ) : null}
+            </button>
           </div>
           {expanded && props.stop?.code ? (
             <p className="mt-1 text-sm text-slate-400">{`Code ${props.stop.code}`}</p>
@@ -458,7 +651,7 @@ export function ArrivalsDrawer(props: {
         {/* Scrollable content */}
         <div
           ref={scrollRef}
-          className={`mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain ${!expanded ? "overflow-hidden" : "touch-auto"}`}
+          className={`mt-2 min-h-0 flex-1 overscroll-contain ${expanded ? "overflow-y-auto touch-auto" : "overflow-hidden"}`}
         >
           {query.isError && rows.length === 0 ? (
             <p className="text-sm text-red-400">
@@ -507,18 +700,14 @@ export function ArrivalsDrawer(props: {
               )}
             </>
           ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {previewRows.map((row) => (
-                  <PreviewChip key={`${row.tripId}-${row.scheduledArrivalTimeMs}`} row={row} nowMs={props.nowMs} />
-                ))}
-              </div>
-              {/* {hiddenCount > 0 ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  +{hiddenCount} more
-                </p>
-              ) : null} */}
-            </>
+            <div
+              ref={chipsRef}
+              className="relative z-20 flex gap-2 overflow-x-scroll pb-1 select-none scrollbar-none"
+            >
+              {previewRows.map((row) => (
+                <PreviewChip key={`${row.tripId}-${row.scheduledArrivalTimeMs}`} row={row} nowMs={props.nowMs} />
+              ))}
+            </div>
           )}
         </div>
       </section>
@@ -537,12 +726,19 @@ function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
 
   return (
     <div
-      className={`flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
+      className={`flex shrink-0 flex-col rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
     >
-      <span className={`text-sm font-bold ${isOld ? "text-slate-400" : "text-sky-300"}`}>
-        {row.routeShortName}
-      </span>
-      <span className="text-sm font-semibold tabular-nums">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-sm font-bold ${isOld ? "text-slate-400" : "text-sky-300"}`}>
+          {row.routeShortName}
+        </span>
+        <span className="text-sm font-semibold tabular-nums">{label}</span>
+      </div>
+      {row.headsign && (
+        <span className={`text-[0.65rem] truncate max-w-[7rem] leading-tight ${isOld ? "text-slate-500" : "text-slate-400"}`}>
+          {row.headsign}
+        </span>
+      )}
     </div>
   );
 }

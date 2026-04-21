@@ -66,6 +66,7 @@ export default function App() {
   const [locateError, setLocateError] = useState<string | null>(null);
   const [userLocateSeq, setUserLocateSeq] = useState(0);
   const [collapseSeq, setCollapseSeq] = useState(0);
+  const [previewHeight, setPreviewHeight] = useState(148);
 
   const agenciesQuery = useQuery({
     queryKey: ["agencies", "coverage"],
@@ -84,13 +85,15 @@ export default function App() {
     });
   }, [agenciesQuery.data]);
 
-  const applyPosition = (pos: GeolocationPosition) => {
+  const applyPosition = (pos: GeolocationPosition, flyTo = true) => {
     setUserLat(pos.coords.latitude);
     setUserLon(pos.coords.longitude);
-    setFlyToLat(pos.coords.latitude);
-    setFlyToLon(pos.coords.longitude);
+    if (flyTo) {
+      setFlyToLat(pos.coords.latitude);
+      setFlyToLon(pos.coords.longitude);
+      setUserLocateSeq((s) => s + 1);
+    }
     setLocateError(null);
-    setUserLocateSeq((s) => s + 1);
   };
 
   const getPermissionState = async (): Promise<GeoPermissionState> => {
@@ -107,6 +110,16 @@ export default function App() {
     }
   };
 
+  const ensureWatch = () => {
+    if (watchIdRef.current !== null) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => applyPosition(pos, false),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10_000 }
+    );
+  };
+
   const locate = () => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setLocateError("Location is not supported on this device.");
@@ -114,14 +127,12 @@ export default function App() {
     }
     setLocateError(null);
 
-    // If we already have a position, fly there immediately and refresh
-    // the position in the background (no spinner).
     if (userLat !== undefined && userLon !== undefined) {
       setFlyToLat(userLat);
       setFlyToLon(userLon);
       setUserLocateSeq((s) => s + 1);
       navigator.geolocation.getCurrentPosition(
-        (pos) => applyPosition(pos),
+        (pos) => { applyPosition(pos); ensureWatch(); },
         () => {},
         { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
       );
@@ -134,6 +145,7 @@ export default function App() {
       (pos) => {
         applyPosition(pos);
         setLocating(false);
+        ensureWatch();
       },
       (err) => {
         if (!geolocationPermissionDenied(err)) {
@@ -141,6 +153,7 @@ export default function App() {
             (pos) => {
               applyPosition(pos);
               setLocating(false);
+              ensureWatch();
             },
             async (err2) => {
               await showLocateError(err2);
@@ -182,17 +195,31 @@ export default function App() {
     locateErrorTimer.current = setTimeout(() => setLocateError(null), 3000);
   };
 
+  const watchIdRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
+    const startWatch = () => {
+      if (watchIdRef.current !== null) return;
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => applyPosition(pos, false),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 10_000 }
+      );
+    };
+
     void (async () => {
       const permission = await getPermissionState();
-      if (permission !== "granted") return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => applyPosition(pos),
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 }
-      );
+      if (permission === "granted") startWatch();
     })();
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
   }, []);
 
   return (
@@ -243,10 +270,10 @@ export default function App() {
           aria-label="Locate me"
           style={{
             bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
-              selected ? 168 : 16
+              selected ? previewHeight + 20 : 16
             }px)`,
           }}
-          className="fixed right-4 z-[2000] inline-flex items-center justify-center rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+          className="fixed right-4 z-[2000] inline-flex items-center justify-center rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
         >
           <Crosshair
             className={`h-5 w-5 ${locating ? "animate-spin" : ""}`}
@@ -259,10 +286,10 @@ export default function App() {
             aria-live="polite"
             style={{
               bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
-                selected ? 224 : 72
+                selected ? previewHeight + 76 : 72
               }px)`,
             }}
-            className="fixed right-4 z-[2000] flex max-w-[min(20rem,calc(100vw-2rem))] items-start gap-2 rounded-lg border border-amber-600 bg-amber-950/95 px-3 py-2 text-xs text-amber-100 shadow-xl"
+            className="fixed right-4 z-[2000] flex max-w-[min(20rem,calc(100vw-2rem))] items-start gap-2 rounded-lg border border-amber-600 bg-amber-950/95 px-3 py-2 text-xs text-amber-100 shadow-xl transition-all duration-300 ease-out"
           >
             <p className="min-w-0 flex-1 leading-snug">{locateError}</p>
             <button
@@ -284,6 +311,7 @@ export default function App() {
         }}
         collapseSeq={collapseSeq}
         nowMs={nowMs}
+        onPreviewHeightChange={setPreviewHeight}
       />
     </div>
   );

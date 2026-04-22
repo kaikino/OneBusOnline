@@ -55,3 +55,12 @@ path.map-stop-marker {
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
   vector-effect: non-scaling-stroke;
 }
+
+/* During PC wheel zoom the map pane is CSS-scaled to preview the zoom.
+   Counter-scale the inner content of each marker icon so stops keep
+   their fixed pixel size while tiles resize.  Targeting the child div
+   (not the marker element itself) avoids scaling Leaflet's translate3d
+   positioning, which would shift markers toward/away from the origin. */
+.wheel-zooming .leaflet-marker-icon > div {
+  scale: calc(1 / var(--wheel-zoom-scale, 1));
+}

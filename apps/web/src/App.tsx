@@ -251,8 +251,8 @@ export default function App() {
           agencyCenter={agencyCenter}
           userLat={userLat}
           userLon={userLon}
-          flyToLat={flyToLat ?? userLat}
-          flyToLon={flyToLon ?? userLon}
+          flyToLat={flyToLat}
+          flyToLon={flyToLon}
           flyToSeq={userLocateSeq}
           selectedStop={selected}
           onSelectStop={(s) => {

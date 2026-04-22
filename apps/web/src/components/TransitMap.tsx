@@ -172,7 +172,7 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
       zoom={13}
       minZoom={3}
       maxZoom={19}
-      zoomSnap={0}
+      zoomSnap={0.5}
       wheelPxPerZoomLevel={120}
       maxBounds={[
         [-85, -180],

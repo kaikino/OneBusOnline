@@ -61,7 +61,10 @@ function errorMessage(err: GeolocationPositionError): string {
   }
 }
 
-/** Tracks the user's position, calling `onLocated` whenever it is determined. */
+/**
+ * Tracks the user's position. `onLocated` fires for explicit locate requests
+ * (and once on load, if permitted) but not for background position updates.
+ */
 function useGeolocation(onLocated: (position: LatLon) => void) {
   const [position, setPosition] = useState<LatLon>();
   const [locating, setLocating] = useState(false);
@@ -91,15 +94,12 @@ function useGeolocation(onLocated: (position: LatLon) => void) {
   useEffect(() => {
     if (!tracking) return;
     const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        setPosition(toLatLon(pos));
-        onLocated(toLatLon(pos));
-      },
+      (pos) => setPosition(toLatLon(pos)),
       undefined,
       WATCH,
     );
     return () => navigator.geolocation.clearWatch(id);
-  }, [tracking, onLocated]);
+  }, [tracking]);
 
   useEffect(() => {
     if (!error) return;

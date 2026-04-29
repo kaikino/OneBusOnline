@@ -149,7 +149,8 @@ export default function App() {
           You are offline — map tiles and live data may be unavailable.
         </div>
       )}
-      <header className="shrink-0 border-b border-slate-800 bg-slate-900 px-3 py-2 md:px-4">
+      <header className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 py-2 md:px-4">
+        <img src="/icons/icon.png" alt="" className="h-8 w-8 rounded-lg" />
         <h1 className="text-base font-semibold tracking-tight text-slate-50 md:text-lg">
           OneBusOnline
         </h1>

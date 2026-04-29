@@ -231,7 +231,14 @@ export default function App() {
         </div>
       ) : null}
       <header className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2 md:px-4">
-        <div>
+        <div className="flex min-w-0 items-center gap-2 md:gap-3">
+          <img
+            src="/icons/icon.png"
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 shrink-0 rounded-lg object-cover"
+          />
           <h1 className="text-base font-semibold tracking-tight text-slate-50 md:text-lg">
             OneBusOnline
           </h1>

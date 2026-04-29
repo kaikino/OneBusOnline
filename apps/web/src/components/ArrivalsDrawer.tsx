@@ -271,7 +271,6 @@ export function ArrivalsDrawer(props: {
     return out;
   }, [rows, props.nowMs]);
 
-  const hiddenCount = Math.max(0, rows.length - previewRows.length);
   const showStaleBanner = offline && query.isError && rows.length > 0;
 
   const dataAgeMs = query.dataUpdatedAt ? props.nowMs - query.dataUpdatedAt : 0;

@@ -2,15 +2,16 @@ import {
   type ArrivalsResponse,
   type Bbox,
   type LatLon,
+  type RouteShape,
   type Stop,
   bboxContainsPoint,
   quantizeBbox,
 } from "@onebus/shared";
 import OnebusawaySDK, { NotFoundError } from "onebusaway-sdk";
 import { cached } from "./cache.js";
-import { byDistanceFrom, toArrival, toStop } from "./normalize.js";
+import { byDistanceFrom, toArrival, toRouteShape, toStop } from "./normalize.js";
 
-const TTL_SEC = { stops: 600, arrivals: 25 };
+const TTL_SEC = { stops: 600, arrivals: 25, routeShape: 86_400 };
 
 /** OBA caps each stop query, so crowded boxes are split into quadrants, up to this many calls. */
 const MAX_CALLS_PER_BBOX = 36;
@@ -116,5 +117,12 @@ export function arrivalsForStop(
       .map(toArrival)
       .sort((a, b) => a.arrivalTimeMs - b.arrivalTimeMs);
     return { stopId, arrivals };
+  });
+}
+
+export function routeShape(routeId: string): Promise<RouteShape> {
+  return cached(`shape:${routeId}`, TTL_SEC.routeShape, async () => {
+    const { data } = await client.stopsForRoute.list(routeId, { includePolylines: true });
+    return toRouteShape(routeId, data.entry);
   });
 }

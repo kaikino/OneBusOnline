@@ -1,10 +1,11 @@
-import type { Arrival, LatLon, Punctuality, Stop } from "@onebus/shared";
+import type { Arrival, LatLon, Punctuality, RouteShape, Stop } from "@onebus/shared";
 import type OnebusawaySDK from "onebusaway-sdk";
 import { haversineMeters } from "./geo.js";
 
 type ObaStop = OnebusawaySDK.StopsForLocationListResponse.Data.List;
 type ObaArrival =
   OnebusawaySDK.ArrivalAndDepartureListResponse.Data.Entry.ArrivalsAndDeparture;
+type ObaRouteEntry = OnebusawaySDK.StopsForRouteListResponse.Data.Entry;
 
 const ON_TIME_TOLERANCE_SEC = 90;
 
@@ -49,5 +50,19 @@ export function toArrival(arrival: ObaArrival): Arrival {
     arrivalTimeMs,
     punctuality: punctuality(predicted, deviationSec),
     deviationSec,
+  };
+}
+
+export function toRouteShape(routeId: string, entry: ObaRouteEntry): RouteShape {
+  const points = (lines?: { points?: string }[]) =>
+    (lines ?? []).flatMap((line) => (line.points ? [line.points] : []));
+  const polylines = points(entry.polylines);
+  return {
+    routeId,
+    // Some agencies only attach polylines to their stop groupings.
+    polylines:
+      polylines.length > 0
+        ? polylines
+        : (entry.stopGroupings ?? []).flatMap((group) => points(group.polylines)),
   };
 }

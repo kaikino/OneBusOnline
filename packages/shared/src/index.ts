@@ -37,3 +37,9 @@ export interface ArrivalsResponse {
   stopId: string;
   arrivals: Arrival[];
 }
+
+export interface RouteShape {
+  routeId: string;
+  /** Google-encoded polylines. */
+  polylines: string[];
+}

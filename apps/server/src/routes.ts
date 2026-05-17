@@ -1,7 +1,7 @@
 import { type RequestHandler, Router } from "express";
 import { z } from "zod";
 import { cacheEnabled, cachedStops } from "./cache.js";
-import { arrivalsForStop, obaConfigured, searchStops, stopsInBbox } from "./oba.js";
+import { arrivalsForStop, obaConfigured, routeShape, searchStops, stopsInBbox } from "./oba.js";
 
 const bboxQuery = z
   .object({
@@ -59,4 +59,9 @@ routes.get("/stops/:id/arrivals", async (req, res) => {
   const { minutesAfter, minutesBefore } = arrivalsQuery.parse(req.query);
   res.set("Cache-Control", "public, max-age=15");
   res.json(await arrivalsForStop(req.params.id, minutesAfter, minutesBefore));
+});
+
+routes.get("/routes/:id/shape", async (req, res) => {
+  res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  res.json(await routeShape(req.params.id));
 });

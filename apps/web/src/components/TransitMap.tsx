@@ -9,8 +9,16 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { type DivIcon, type Map as LeafletMap, divIcon } from "leaflet";
 import { type Ref, useCallback, useEffect, useMemo, useState } from "react";
-import { MapContainer, Marker, TileLayer, ZoomControl, useMapEvents } from "react-leaflet";
-import { fetchStopsInBbox, fetchStopsSnapshot } from "../api";
+import {
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  ZoomControl,
+  useMapEvents,
+} from "react-leaflet";
+import { fetchRouteShape, fetchStopsInBbox, fetchStopsSnapshot } from "../api";
+import { decodePolyline } from "../polyline";
 import type { RouteFilter } from "../routeFilter";
 import { loadSavedStops, saveStops } from "../stopsPersistence";
 
@@ -18,6 +26,8 @@ const SEATTLE: [number, number] = [47.6062, -122.3321];
 const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>';
+
+const ROUTE_LINE_STYLE = { color: "#0ea5e9", weight: 5, opacity: 0.85 };
 
 const MIN_FETCH_ZOOM = 13;
 const SAVE_DELAY_MS = 2000;
@@ -153,11 +163,23 @@ function ViewportReporter({ onChange }: { onChange: (viewport: Viewport) => void
   return null;
 }
 
+function RouteLine({ routeId }: { routeId: string }) {
+  const { data: shape } = useQuery({
+    queryKey: ["routeShape", routeId],
+    queryFn: () => fetchRouteShape(routeId),
+    staleTime: 60 * 60_000,
+  });
+
+  const lines = useMemo(() => shape?.polylines.map(decodePolyline) ?? [], [shape]);
+
+  return <Polyline positions={lines} pathOptions={ROUTE_LINE_STYLE} interactive={false} />;
+}
+
 interface Props {
   ref: Ref<LeafletMap>;
   userPosition?: LatLon;
   selectedStop: Stop | null;
-  /** When set, stops this route doesn't serve are dimmed. */
+  /** When set, the route is drawn and stops it doesn't serve are dimmed. */
   routeFilter: RouteFilter | null;
   onSelectStop: (stop: Stop) => void;
 }
@@ -197,6 +219,7 @@ export function TransitMap({
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
       <ViewportReporter onChange={setViewport} />
+      {routeFilter && <RouteLine routeId={routeFilter.routeId} />}
       {userPosition && (
         <Marker
           position={[userPosition.lat, userPosition.lon]}

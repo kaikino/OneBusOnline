@@ -11,6 +11,7 @@ import { type DivIcon, type Map as LeafletMap, divIcon } from "leaflet";
 import { type Ref, useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, ZoomControl, useMapEvents } from "react-leaflet";
 import { fetchStopsInBbox, fetchStopsSnapshot } from "../api";
+import type { RouteFilter } from "../routeFilter";
 import { loadSavedStops, saveStops } from "../stopsPersistence";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
@@ -44,13 +45,11 @@ function markerIcon(className: string, size: number, heading?: number): DivIcon 
   return icon;
 }
 
-function stopIcon(direction: string | undefined, selected: boolean): DivIcon {
+type StopMarkerState = "default" | "selected" | "dimmed";
+
+function stopIcon(direction: string | undefined, state: StopMarkerState): DivIcon {
   const octant = COMPASS.indexOf(direction ?? "");
-  return markerIcon(
-    `marker-stop ${selected ? "marker-selected" : ""}`,
-    STOP_SIZE,
-    octant < 0 ? undefined : octant * 45,
-  );
+  return markerIcon(`marker-stop marker-${state}`, STOP_SIZE, octant < 0 ? undefined : octant * 45);
 }
 
 const USER_ICON = divIcon({ className: "marker-user", iconSize: [16, 16] });
@@ -158,12 +157,25 @@ interface Props {
   ref: Ref<LeafletMap>;
   userPosition?: LatLon;
   selectedStop: Stop | null;
+  /** When set, stops this route doesn't serve are dimmed. */
+  routeFilter: RouteFilter | null;
   onSelectStop: (stop: Stop) => void;
 }
 
-export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Props) {
+export function TransitMap({
+  ref,
+  userPosition,
+  selectedStop,
+  routeFilter,
+  onSelectStop,
+}: Props) {
   const [viewport, setViewport] = useState<Viewport | null>(null);
   const stops = useStops(viewport);
+
+  const stateOf = (stop: Stop): StopMarkerState => {
+    if (stop.id === selectedStop?.id) return "selected";
+    return routeFilter && !stop.routeIds.includes(routeFilter.routeId) ? "dimmed" : "default";
+  };
 
   return (
     <MapContainer
@@ -196,7 +208,7 @@ export function TransitMap({ ref, userPosition, selectedStop, onSelectStop }: Pr
         <Marker
           key={stop.id}
           position={[stop.lat, stop.lon]}
-          icon={stopIcon(stop.direction, stop.id === selectedStop?.id)}
+          icon={stopIcon(stop.direction, stateOf(stop))}
           eventHandlers={{ click: () => onSelectStop(stop) }}
         />
       ))}

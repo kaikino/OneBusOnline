@@ -1,6 +1,6 @@
 import type { Arrival, ArrivalsResponse, Stop } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Bus, RefreshCw } from "lucide-react";
+import { Bus, RefreshCw, X } from "lucide-react";
 import {
   type PointerEvent,
   type ReactNode,
@@ -19,6 +19,7 @@ import {
   punctualityLabel,
 } from "../arrivalUi";
 import { useOnline } from "../hooks/useOnline";
+import { type RouteFilter, matchesRoute } from "../routeFilter";
 
 /** Visible height of the sheet in preview mode, excluding the bottom safe area. */
 export const SHEET_PREVIEW_HEIGHT = 132;
@@ -257,30 +258,44 @@ function ArrivalChip({ arrival, now }: { arrival: Arrival; now: number }) {
   );
 }
 
-function ArrivalRow({ arrival, now }: { arrival: Arrival; now: number }) {
+interface ArrivalRowProps {
+  arrival: Arrival;
+  now: number;
+  active: boolean;
+  onToggle: () => void;
+}
+
+function ArrivalRow({ arrival, now, active, onToggle }: ArrivalRowProps) {
   const departed = hasDeparted(arrival.arrivalTimeMs, now);
 
+  let tile = "border-slate-800 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900";
+  if (active) tile = "border-slate-300/70 bg-slate-900";
+  if (departed) tile = "border-slate-800 bg-slate-900/60 opacity-60";
+
   return (
-    <li
-      className={`flex items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2 ${
-        departed ? "bg-slate-900/60 opacity-60" : "bg-slate-900/80"
-      }`}
-    >
-      <div className="min-w-0">
-        <div className="font-medium">
-          <span className="text-sky-300">{arrival.routeShortName}</span>
-          <span className="ml-2 text-slate-300">{arrival.headsign}</span>
-        </div>
-        <div className="text-xs text-slate-500">
-          {departed ? "Arrived" : "Arriving"} at {formatClock(arrival.arrivalTimeMs)} (
-          {punctualityLabel(arrival.punctuality, arrival.deviationSec)})
-        </div>
-      </div>
-      <div
-        className={`shrink-0 text-lg font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={active}
+        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${tile}`}
       >
-        {etaLabel(arrival.arrivalTimeMs, now)}
-      </div>
+        <div className="min-w-0">
+          <div className="font-medium">
+            <span className="text-sky-300">{arrival.routeShortName}</span>
+            <span className="ml-2 text-slate-300">{arrival.headsign}</span>
+          </div>
+          <div className="text-xs text-slate-500">
+            {departed ? "Arrived" : "Arriving"} at {formatClock(arrival.arrivalTimeMs)} (
+            {punctualityLabel(arrival.punctuality, arrival.deviationSec)})
+          </div>
+        </div>
+        <div
+          className={`shrink-0 text-lg font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}
+        >
+          {etaLabel(arrival.arrivalTimeMs, now)}
+        </div>
+      </button>
     </li>
   );
 }
@@ -289,9 +304,11 @@ interface Props {
   stop: Stop | null;
   expanded: boolean;
   onSnap: (snap: SheetSnap) => void;
+  routeFilter: RouteFilter | null;
+  onRouteFilterChange: (filter: RouteFilter | null) => void;
 }
 
-export function ArrivalsDrawer({ stop, expanded, onSnap }: Props) {
+export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFilterChange }: Props) {
   const now = useNow(5000);
   const online = useOnline();
   const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
@@ -300,6 +317,23 @@ export function ArrivalsDrawer({ stop, expanded, onSnap }: Props) {
   // Keeps the stop on screen while the sheet slides closed.
   const [shownStop, setShownStop] = useState(stop);
   if (stop && stop !== shownStop) setShownStop(stop);
+
+  const listed = routeFilter
+    ? arrivals.filter((arrival) => matchesRoute(routeFilter, arrival))
+    : arrivals;
+
+  const toggleProps = (arrival: Arrival) => {
+    const active = routeFilter !== null && matchesRoute(routeFilter, arrival);
+    return {
+      arrival,
+      now,
+      active,
+      onToggle: () =>
+        onRouteFilterChange(
+          active ? null : { routeId: arrival.routeId, headsign: arrival.headsign },
+        ),
+    };
+  };
 
   let notice: string | null = null;
   if (arrivals.length > 0) {
@@ -344,12 +378,24 @@ export function ArrivalsDrawer({ stop, expanded, onSnap }: Props) {
           {notice && <p className="mb-2 text-sm text-slate-400">{notice}</p>}
           {raised ? (
             <>
+              {routeFilter && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-sky-700/60 bg-sky-500/10 px-2.5 py-1.5 text-xs text-sky-200">
+                  <span className="truncate">Showing only this route</span>
+                  <button
+                    type="button"
+                    onClick={() => onRouteFilterChange(null)}
+                    className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-sky-500/20"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                    Clear
+                  </button>
+                </div>
+              )}
               <ul className="space-y-2">
-                {arrivals.map((arrival) => (
+                {listed.map((arrival) => (
                   <ArrivalRow
                     key={`${arrival.tripId}:${arrival.scheduledTimeMs}`}
-                    arrival={arrival}
-                    now={now}
+                    {...toggleProps(arrival)}
                   />
                 ))}
               </ul>

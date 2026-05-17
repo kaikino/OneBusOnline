@@ -49,6 +49,9 @@ body,
 .marker-stop {
   opacity: 0.8;
 }
+.marker-stop.marker-dimmed {
+  opacity: 0.2;
+}
 .marker-stop.marker-selected {
   --color: #facc15;
   --border: #fff;

@@ -10,6 +10,7 @@ import {
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 import { useOnline } from "./hooks/useOnline";
+import type { RouteFilter } from "./routeFilter";
 
 const FOCUS_ZOOM = 15;
 
@@ -121,6 +122,7 @@ export default function App() {
   const mapRef = useRef<LeafletMap>(null);
   const [stop, setStop] = useState<Stop | null>(null);
   const [drawerExpanded, setDrawerExpanded] = useState(false);
+  const [routeFilter, setRouteFilter] = useState<RouteFilter | null>(null);
 
   const flyTo = useCallback(({ lat, lon }: LatLon) => {
     mapRef.current?.flyTo([lat, lon], FOCUS_ZOOM, { duration: 1 });
@@ -131,6 +133,7 @@ export default function App() {
   const selectStop = (next: Stop | null) => {
     setStop(next);
     setDrawerExpanded(false);
+    setRouteFilter(null);
   };
 
   const snapDrawer = (snap: SheetSnap) => {
@@ -167,6 +170,7 @@ export default function App() {
           ref={mapRef}
           userPosition={geolocation.position}
           selectedStop={stop}
+          routeFilter={routeFilter}
           onSelectStop={selectStop}
         />
         <button
@@ -199,6 +203,8 @@ export default function App() {
         stop={stop}
         expanded={drawerExpanded}
         onSnap={snapDrawer}
+        routeFilter={routeFilter}
+        onRouteFilterChange={setRouteFilter}
       />
     </div>
   );

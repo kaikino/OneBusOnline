@@ -4,6 +4,7 @@ import {
   type AgencyCoverage,
   type ArrivalsForStopResponse,
   type BboxParams,
+  type RouteShape,
   type StopSummary,
 } from "@onebus/shared";
 export type { BboxParams };
@@ -115,6 +116,10 @@ export function arrivalsLocalStorageKey(
   minutesBefore: number
 ): string {
   return `onebus:arrivals:${minutesAfter}_${minutesBefore}:${stopId}`;
+}
+
+export function fetchRouteShape(routeId: string): Promise<RouteShape> {
+  return getJson(`/api/v1/routes/${encodeURIComponent(routeId)}/stops`);
 }
 
 export function fetchArrivals(

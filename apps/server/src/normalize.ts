@@ -3,6 +3,7 @@ import type {
   ArrivalPunctuality,
   ArrivalRow,
   ArrivalsForStopResponse,
+  RouteShape,
   StopSummary,
 } from "@onebus/shared";
 import type { OnebusawaySDK } from "onebusaway-sdk";
@@ -138,6 +139,38 @@ function pickSortTime(a: ArrivalRow): number {
     return a.predictedArrivalTimeMs;
   }
   return a.scheduledArrivalTimeMs;
+}
+
+export function normalizeRouteShape(
+  routeId: string,
+  entry: {
+    routeId?: string;
+    stopIds?: Array<string>;
+    polylines?: Array<{ points?: string }>;
+    stopGroupings?: Array<{
+      polylines?: Array<{ points?: string }>;
+      stopIds?: Array<string>;
+    }>;
+  } | undefined
+): RouteShape {
+  const polylines: string[] = [];
+  for (const p of entry?.polylines ?? []) {
+    if (p?.points) polylines.push(p.points);
+  }
+  if (polylines.length === 0) {
+    // Some agencies only populate polylines on stopGroupings; flatten.
+    for (const g of entry?.stopGroupings ?? []) {
+      for (const p of g?.polylines ?? []) {
+        if (p?.points) polylines.push(p.points);
+      }
+    }
+  }
+  const stopIds = Array.isArray(entry?.stopIds) ? entry!.stopIds! : [];
+  return {
+    routeId: entry?.routeId ?? routeId,
+    polylines,
+    stopIds,
+  };
 }
 
 export function normalizeAgencyCoverage(

@@ -6,6 +6,7 @@ import leaflet from "leaflet";
 import {
   MapContainer,
   Marker,
+  Polyline,
   TileLayer,
   ZoomControl,
   useMap,
@@ -13,6 +14,7 @@ import {
 } from "react-leaflet";
 import {
   bboxContainsOuter,
+  fetchRouteShape,
   fetchStopsBbox,
   fetchStopsSnapshot,
   quantizeBboxForCache,
@@ -524,6 +526,85 @@ function FlyTo(props: { lat: number; lon: number; zoom?: number; seq?: number })
   return null;
 }
 
+/**
+ * Decode a Google-encoded polyline string into [lat, lon] pairs.
+ * Inline implementation to avoid pulling in @mapbox/polyline (~5kB).
+ */
+function decodePolyline(str: string): [number, number][] {
+  const coords: [number, number][] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < str.length) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += dlng;
+
+    coords.push([lat * 1e-5, lng * 1e-5]);
+  }
+  return coords;
+}
+
+const RoutePolylineLayer = memo(
+  function RoutePolylineLayer({ routeId }: { routeId: string }) {
+    const shapeQuery = useQuery({
+      queryKey: ["routeShape", routeId],
+      queryFn: () => fetchRouteShape(routeId),
+      staleTime: 60 * 60 * 1000,
+      gcTime: 24 * 60 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    });
+
+    const lines = useMemo(() => {
+      const polys = shapeQuery.data?.polylines ?? [];
+      const out: [number, number][][] = [];
+      for (const p of polys) {
+        if (!p) continue;
+        const pts = decodePolyline(p);
+        if (pts.length >= 2) out.push(pts);
+      }
+      return out;
+    }, [shapeQuery.data]);
+
+    if (lines.length === 0) return null;
+    return (
+      <>
+        {lines.map((pts, i) => (
+          <Polyline
+            key={i}
+            positions={pts}
+            pathOptions={{
+              color: "#0ea5e9",
+              weight: 5,
+              opacity: 0.85,
+              lineJoin: "round",
+              lineCap: "round",
+            }}
+            interactive={false}
+          />
+        ))}
+      </>
+    );
+  }
+);
+
 function stopsFingerprint(stops: StopSummary[]): string {
   if (stops.length === 0) return "";
   return stops.map((s) => `${s.id}:${s.lat.toFixed(5)}:${s.lon.toFixed(5)}`).join("|");
@@ -720,6 +801,9 @@ export function TransitMap(props: {
       <PinchToPan />
       <ViewportReporter onViewportChange={onViewportChange} />
       {flyTarget}
+      {props.routeFilter?.routeId ? (
+        <RoutePolylineLayer routeId={props.routeFilter.routeId} />
+      ) : null}
       {props.userLat !== undefined && props.userLon !== undefined ? (
         <Marker
           position={[props.userLat, props.userLon]}

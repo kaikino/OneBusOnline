@@ -49,6 +49,17 @@ export interface ArrivalsForStopResponse {
   arrivals: ArrivalRow[];
 }
 
+/**
+ * Geometry + ordered stop list for a single route, as returned by OBA's
+ * `stops-for-route`. `polylines` are encoded Google polyline strings —
+ * decode on the client to render.
+ */
+export interface RouteShape {
+  routeId: string;
+  polylines: string[];
+  stopIds: string[];
+}
+
 export interface HealthResponse {
   ok: boolean;
   obaConfigured: boolean;

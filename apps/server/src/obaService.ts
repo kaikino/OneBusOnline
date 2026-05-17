@@ -2,6 +2,7 @@ import type {
   AgencyCoverage,
   ArrivalsForStopResponse,
   HealthResponse,
+  RouteShape,
   StopSummary,
 } from "@onebus/shared";
 import { quantizeBboxForCache, stopsBboxCacheKey } from "@onebus/shared";
@@ -10,6 +11,7 @@ import { haversineMeters } from "./haversine.js";
 import {
   normalizeAgencyCoverage,
   normalizeArrivals,
+  normalizeRouteShape,
   normalizeStops,
 } from "./normalize.js";
 import { obaCall } from "./obaRateLimit.js";
@@ -23,6 +25,7 @@ import {
 
 const stopsMetaTtl = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
 const arrivalsTtl = Number(process.env.CACHE_ARRIVALS_TTL_SEC ?? 25);
+const routeShapeTtl = Number(process.env.CACHE_ROUTE_SHAPE_TTL_SEC ?? 86_400);
 
 const arrivalsDefaultAfter = (() => {
   const n = Number(process.env.ARRIVALS_MINUTES_AFTER_DEFAULT ?? 120);
@@ -288,6 +291,23 @@ export class ObaService {
 
     const out = normalizeStops(list, refs, origin);
     await cacheSetStops(key, out, stopsMetaTtl);
+    return out;
+  }
+
+  async stopsForRoute(routeId: string): Promise<RouteShape> {
+    const key = `route-shape:${routeId}`;
+    const raw = await cacheGet(key);
+    if (raw) {
+      try {
+        return JSON.parse(raw) as RouteShape;
+      } catch { /* fall through */ }
+    }
+    const res = await obaCall("stopsForRoute", () =>
+      this.client.stopsForRoute.list(routeId, { includePolylines: true })
+    );
+    const entry = res.data?.entry;
+    const out = normalizeRouteShape(routeId, entry);
+    await cacheSet(key, JSON.stringify(out), routeShapeTtl);
     return out;
   }
 

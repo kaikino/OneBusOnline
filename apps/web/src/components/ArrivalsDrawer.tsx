@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import type { StopSummary } from "@onebus/shared";
-import { Bus, RefreshCw } from "lucide-react";
+import type { ArrivalRow, StopSummary } from "@onebus/shared";
+import { Bus, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ARRIVALS_EXTEND_STEP_MIN,
@@ -51,6 +51,25 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * Composite filter: same route AND same direction (headsign).
+ * `headsign` is stored as a normalized key (trim + lowercase + collapsed whitespace)
+ * so minor inconsistencies in OBA data ("Bellevue", "Bellevue ", "BELLEVUE") match.
+ */
+export type RouteFilter = { routeId: string; headsign: string };
+
+function headsignKey(h: string | undefined | null): string {
+  return (h ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function rowMatchesFilter(row: ArrivalRow, filter: RouteFilter | null): boolean {
+  if (!filter) return true;
+  return (
+    row.routeId === filter.routeId &&
+    headsignKey(row.headsign) === filter.headsign
+  );
+}
+
 export function ArrivalsDrawer(props: {
   stop: StopSummary | null;
   open: boolean;
@@ -59,6 +78,9 @@ export function ArrivalsDrawer(props: {
   collapseSeq?: number;
   nowMs: number;
   onPreviewHeightChange?: (height: number) => void;
+  /** When set, list is restricted to arrivals on this route + direction. */
+  routeFilter?: RouteFilter | null;
+  onRouteFilterChange?: (filter: RouteFilter | null) => void;
 }) {
   const stopId = props.stop?.id ?? "";
   const before = ARRIVALS_QUERY_WINDOW.minutesBefore;
@@ -257,10 +279,29 @@ export function ArrivalsDrawer(props: {
     : null;
   const rows = query.data?.arrivals ?? cached?.arrivals ?? [];
 
-  const previewRows = useMemo(() => {
-    const out: typeof rows = [];
+  const routeFilter = props.routeFilter ?? null;
+
+  const displayedRows = useMemo(() => {
+    const filtered = routeFilter
+      ? rows.filter((r) => rowMatchesFilter(r, routeFilter))
+      : rows;
+    // OBA can occasionally return two entries for the same trip+stop+time
+    // (e.g. a scheduled + predicted record). Collapse to one row per arrival.
     const seen = new Set<string>();
-    for (const row of rows) {
+    const out: ArrivalRow[] = [];
+    for (const r of filtered) {
+      const key = `${r.tripId}::${r.stopId}::${r.scheduledArrivalTimeMs}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    return out;
+  }, [rows, routeFilter]);
+
+  const previewRows = useMemo(() => {
+    const out: ArrivalRow[] = [];
+    const seen = new Set<string>();
+    for (const row of displayedRows) {
       const routeKey = `${row.routeId || row.routeShortName}::${row.headsign || ""}`;
       if (seen.has(routeKey)) continue;
       const mins = minutesUntil(displayTimeMs(row), props.nowMs);
@@ -269,7 +310,19 @@ export function ArrivalsDrawer(props: {
       out.push(row);
     }
     return out;
-  }, [rows, props.nowMs]);
+  }, [displayedRows, props.nowMs]);
+
+  const filteredRouteLabel = useMemo(() => {
+    if (!routeFilter) return null;
+    const match = rows.find((r) => rowMatchesFilter(r, routeFilter));
+    if (!match) return routeFilter.routeId;
+    const short = match.routeShortName || match.routeId;
+    return match.headsign ? `${short} → ${match.headsign}` : short;
+  }, [rows, routeFilter]);
+
+  const clearRouteFilter = useCallback(() => {
+    props.onRouteFilterChange?.(null);
+  }, [props.onRouteFilterChange]);
 
   const showStaleBanner = offline && query.isError && rows.length > 0;
 
@@ -678,9 +731,39 @@ export function ArrivalsDrawer(props: {
 
           {expanded ? (
             <>
+              {routeFilter ? (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-sky-700/60 bg-sky-500/10 px-2.5 py-1.5 text-xs text-sky-200">
+                  <span className="min-w-0 truncate">
+                    Showing only
+                    <span className="ml-1 font-semibold text-sky-100">
+                      {filteredRouteLabel ?? routeFilter.routeId}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearRouteFilter}
+                    className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-sky-200 hover:bg-sky-500/20 hover:text-sky-50"
+                    aria-label="Clear route filter"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                    <span>Clear</span>
+                  </button>
+                </div>
+              ) : null}
+              {routeFilter && displayedRows.length === 0 && rows.length > 0 ? (
+                <p className="text-sm text-slate-500">
+                  No upcoming arrivals for {filteredRouteLabel ?? routeFilter.routeId}.
+                </p>
+              ) : null}
               <ul className="space-y-2">
-                {(expanded ? rows : previewRows).map((row) => (
-                  <ExpandedRow key={`${row.tripId}-${row.scheduledArrivalTimeMs}`} row={row} nowMs={props.nowMs} />
+                {displayedRows.map((row) => (
+                  <ExpandedRow
+                    key={`${row.tripId}::${row.stopId}::${row.scheduledArrivalTimeMs}`}
+                    row={row}
+                    nowMs={props.nowMs}
+                    routeFilter={routeFilter}
+                    onRouteFilterChange={props.onRouteFilterChange}
+                  />
                 ))}
               </ul>
               {Boolean(stopId) && (
@@ -742,7 +825,17 @@ function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
   );
 }
 
-function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
+function ExpandedRow({
+  row,
+  nowMs,
+  routeFilter,
+  onRouteFilterChange,
+}: {
+  row: ArrivalRow;
+  nowMs: number;
+  routeFilter: RouteFilter | null;
+  onRouteFilterChange?: (filter: RouteFilter | null) => void;
+}) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
   const roundedMins = Math.trunc(mins);
@@ -767,24 +860,52 @@ function ExpandedRow({ row, nowMs }: { row: any; nowMs: number }) {
   const arrivalClock = ARRIVAL_CLOCK.format(new Date(t));
   const arrivalVerb = mins <= -1 ? "Arrived" : "Arriving";
 
+  const routeActive = routeFilter != null && rowMatchesFilter(row, routeFilter);
+  const tileClass = isOld
+    ? "border-slate-800 bg-slate-900/60 text-slate-400"
+      : routeActive
+        ? "border-slate-300/70 bg-slate-900"
+        : "border-slate-800 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900";
+
+  const handleClick = () => {
+    if (!onRouteFilterChange) return;
+    onRouteFilterChange(
+      routeActive
+        ? null
+        : { routeId: row.routeId, headsign: headsignKey(row.headsign) }
+    );
+  };
+
+  const ariaLabel = routeActive
+    ? `Clear filter for ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`
+    : `Show only ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`;
+
   return (
-    <li className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${isOld ? "border-slate-800 bg-slate-900/60 text-slate-400" : "border-slate-800 bg-slate-900/80"}`}>
-      <div className="min-w-0">
-        <div className={`font-medium ${isOld ? "text-slate-400" : "text-slate-100"}`}>
-          <span className={isOld ? "text-slate-400" : "text-sky-300"}>{row.routeShortName}</span>
-          {row.headsign ? (
-            <span className={`ml-2 ${isOld ? "text-slate-400" : "text-slate-300"}`}>{row.headsign}</span>
-          ) : null}
-        </div>
-        <div className={`text-xs ${isOld ? "text-slate-500" : "text-slate-500"}`}>
-          {`${arrivalVerb} at ${arrivalClock} (${etaStatus})`}
-        </div>
-      </div>
-      <div
-        className={`shrink-0 text-right text-lg font-semibold tabular-nums ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
+    <li>
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-pressed={routeActive}
+        aria-label={ariaLabel}
+        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tileClass}`}
       >
-        {label}
-      </div>
+        <div className="min-w-0">
+          <div className={`font-medium ${isOld ? "text-slate-400" : "text-slate-100"}`}>
+            <span className={isOld ? "text-slate-400" : "text-sky-300"}>{row.routeShortName}</span>
+            {row.headsign ? (
+              <span className={`ml-2 ${isOld ? "text-slate-400" : "text-slate-300"}`}>{row.headsign}</span>
+            ) : null}
+          </div>
+          <div className="text-xs text-slate-500">
+            {`${arrivalVerb} at ${arrivalClock} (${etaStatus})`}
+          </div>
+        </div>
+        <div
+          className={`shrink-0 text-right text-lg font-semibold tabular-nums ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
+        >
+          {label}
+        </div>
+      </button>
     </li>
   );
 }

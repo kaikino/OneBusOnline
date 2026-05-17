@@ -51,8 +51,12 @@ function directionToDegrees(direction?: string): number | null {
 
 const STOP_ICON_CACHE = new Map<string, L.DivIcon>();
 
-function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
-  const key = `${selected ? "s" : "u"}:${dirDeg ?? "x"}`;
+function stopIcon(
+  selected: boolean,
+  dirDeg: number | null,
+  dimmed = false
+): L.DivIcon {
+  const key = `${selected ? "s" : "u"}:${dimmed ? "d" : "n"}:${dirDeg ?? "x"}`;
   const cached = STOP_ICON_CACHE.get(key);
   if (cached) return cached;
 
@@ -60,7 +64,8 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
   const dotBorder = selected ? 2 : 2;
   const dotColor = selected ? "#facc15" : "#0ea5e9";
   const dotBorderColor = selected ? "#ffffff" : "#0f172a";
-  const dotOpacity = selected ? 1 : 0.7;
+  const baseDotOpacity = selected ? 1 : 0.7;
+  const dotOpacity = dimmed ? baseDotOpacity * 0.25 : baseDotOpacity;
   const dotOffset = (ICON_SIZE - dotSize) / 2;
 
   let html = "";
@@ -71,7 +76,8 @@ function stopIcon(selected: boolean, dirDeg: number | null): L.DivIcon {
     const triColor = selected ? "#facc15" : "#0ea5e9";
     const triLeft = (ICON_SIZE - triW) / 2;
     const triTop = (ICON_SIZE - triH) / 2;
-    html += `<div style="position:absolute;left:${triLeft}px;top:${triTop}px;width:${triW}px;height:${triH}px;clip-path:polygon(50% 0%,0% 100%,100% 100%);background:${triColor};outline:1px solid #fff;transform:rotate(${dirDeg}deg) translateY(-${ICON_HALF - 1}px);transform-origin:50% 50%;"></div>`;
+    const triOpacity = dimmed ? 0.25 : 1;
+    html += `<div style="position:absolute;left:${triLeft}px;top:${triTop}px;width:${triW}px;height:${triH}px;clip-path:polygon(50% 0%,0% 100%,100% 100%);background:${triColor};outline:1px solid #fff;opacity:${triOpacity};transform:rotate(${dirDeg}deg) translateY(-${ICON_HALF - 1}px);transform-origin:50% 50%;"></div>`;
   }
 
   html += `<div style="position:absolute;left:${dotOffset}px;top:${dotOffset}px;width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${dotColor};border:${dotBorder}px solid ${dotBorderColor};opacity:${dotOpacity};"></div>`;
@@ -527,11 +533,16 @@ const StopMarkersLayer = memo(
   function StopMarkersLayer(props: {
     stops: StopSummary[];
     selectedId: string | undefined;
+    routeFilterId: string | null;
     onSelectStop: (s: StopSummary) => void;
   }) {
     const selectedStop = props.selectedId
       ? props.stops.find((s) => s.id === props.selectedId)
       : undefined;
+    const isDimmed = (s: StopSummary) =>
+      props.routeFilterId != null &&
+      s.id !== props.selectedId &&
+      !s.routeIds.includes(props.routeFilterId);
     return (
       <>
         {props.stops.map((s) => {
@@ -540,7 +551,7 @@ const StopMarkersLayer = memo(
             <Marker
               key={s.id}
               position={[s.lat, s.lon]}
-              icon={stopIcon(false, directionToDegrees(s.direction))}
+              icon={stopIcon(false, directionToDegrees(s.direction), isDimmed(s))}
               eventHandlers={{
                 click: () => props.onSelectStop(s),
               }}
@@ -551,7 +562,7 @@ const StopMarkersLayer = memo(
           <Marker
             key={`sel-${selectedStop.id}`}
             position={[selectedStop.lat, selectedStop.lon]}
-            icon={stopIcon(true, directionToDegrees(selectedStop.direction))}
+            icon={stopIcon(true, directionToDegrees(selectedStop.direction), false)}
             eventHandlers={{
               click: () => props.onSelectStop(selectedStop),
             }}
@@ -562,6 +573,7 @@ const StopMarkersLayer = memo(
   },
   (prev, next) =>
     prev.selectedId === next.selectedId &&
+    prev.routeFilterId === next.routeFilterId &&
     prev.onSelectStop === next.onSelectStop &&
     stopsFingerprint(prev.stops) === stopsFingerprint(next.stops)
 );
@@ -574,6 +586,7 @@ export function TransitMap(props: {
   flyToLon?: number;
   flyToSeq?: number;
   selectedStop: StopSummary | null;
+  routeFilter?: { routeId: string; headsign: string } | null;
   onSelectStop: (s: StopSummary) => void;
 }) {
   const [viewport, setViewport] = useState<{
@@ -717,6 +730,7 @@ export function TransitMap(props: {
       <StopMarkersLayer
         stops={stopsToPlot}
         selectedId={props.selectedStop?.id}
+        routeFilterId={props.routeFilter?.routeId ?? null}
         onSelectStop={stableSelectStop}
       />
     </MapContainer>

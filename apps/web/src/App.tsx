@@ -3,7 +3,7 @@ import { Crosshair, WifiOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchAgencyCoverage } from "./api";
-import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
+import { ArrivalsDrawer, type RouteFilter } from "./components/ArrivalsDrawer";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 
@@ -62,11 +62,16 @@ export default function App() {
   const [flyToLat, setFlyToLat] = useState<number>();
   const [flyToLon, setFlyToLon] = useState<number>();
   const [selected, setSelected] = useState<StopSummary | null>(null);
+  const [routeFilter, setRouteFilter] = useState<RouteFilter | null>(null);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
   const [userLocateSeq, setUserLocateSeq] = useState(0);
   const [collapseSeq, setCollapseSeq] = useState(0);
   const [previewHeight, setPreviewHeight] = useState(148);
+
+  useEffect(() => {
+    setRouteFilter(null);
+  }, [selected?.id]);
 
   const agenciesQuery = useQuery({
     queryKey: ["agencies", "coverage"],
@@ -262,6 +267,7 @@ export default function App() {
           flyToLon={flyToLon}
           flyToSeq={userLocateSeq}
           selectedStop={selected}
+          routeFilter={routeFilter}
           onSelectStop={(s) => {
             setSelected(s);
           }}
@@ -314,11 +320,16 @@ export default function App() {
         stop={selected}
         open={Boolean(selected)}
         onOpenChange={(o) => {
-          if (!o) setSelected(null);
+          if (!o) {
+            setSelected(null);
+            setRouteFilter(null);
+          }
         }}
         collapseSeq={collapseSeq}
         nowMs={nowMs}
         onPreviewHeightChange={setPreviewHeight}
+        routeFilter={routeFilter}
+        onRouteFilterChange={setRouteFilter}
       />
     </div>
   );

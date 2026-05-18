@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ArrivalRow, StopSummary } from "@onebus/shared";
 import { Bus, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ARRIVALS_EXTEND_STEP_MIN,
   ARRIVALS_QUERY_WINDOW,
@@ -25,6 +25,126 @@ const PREVIEW_HEIGHT_PX = 132;
 const EXPANDED_VH = 0.74;
 const VELOCITY_THRESHOLD = 0.4;
 const CLOSE_VELOCITY_THRESHOLD = 0.6;
+
+/**
+ * iOS/WebKit: route `click` can be unreliable after sheet gestures; we also need real taps.
+ * While the finger is down, movement must be tracked at the *document* level — during list /
+ * chip scroll, `touchmove` often stops reaching the inner `<button>`, so in-element slop alone
+ * falsely treats drags as taps. Only fire when movement stays within ROUTE_TILE_TAP_SLOP_PX.
+ */
+const ROUTE_TILE_TAP_SLOP_PX = 12;
+
+function useTouchPrimaryTap(
+  ref: React.RefObject<HTMLButtonElement | null>,
+  onTap: () => void,
+) {
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const fromTouchTs = useRef(0);
+  const suppressUntilTs = useRef(0);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+
+    let active: { id: number; x0: number; y0: number } | null = null;
+    let slopExceeded = false;
+
+    const onDocMove = (e: TouchEvent) => {
+      if (!active) return;
+      const t = Array.from(e.touches).find((x) => x.identifier === active!.id);
+      if (!t) return;
+      const dx = t.clientX - active.x0;
+      const dy = t.clientY - active.y0;
+      if (dx * dx + dy * dy > ROUTE_TILE_TAP_SLOP_PX * ROUTE_TILE_TAP_SLOP_PX) {
+        slopExceeded = true;
+      }
+    };
+
+    const detachDoc = () => {
+      document.removeEventListener("touchmove", onDocMove, { capture: true });
+    };
+
+    const attachDoc = () => {
+      document.addEventListener("touchmove", onDocMove, { passive: true, capture: true });
+    };
+
+    const onStart = (e: TouchEvent) => {
+      detachDoc();
+      if (e.targetTouches.length !== 1) {
+        active = null;
+        return;
+      }
+      const t = e.targetTouches[0];
+      active = { id: t.identifier, x0: t.clientX, y0: t.clientY };
+      slopExceeded = false;
+      attachDoc();
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      detachDoc();
+      const endNow = Date.now();
+
+      if (!active) {
+        return;
+      }
+      const s = active;
+      active = null;
+
+      const t = Array.from(e.changedTouches).find((x) => x.identifier === s.id);
+      if (!t || slopExceeded) {
+        suppressUntilTs.current = endNow;
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      const dx = t.clientX - s.x0;
+      const dy = t.clientY - s.y0;
+      if (dx * dx + dy * dy > ROUTE_TILE_TAP_SLOP_PX * ROUTE_TILE_TAP_SLOP_PX) {
+        suppressUntilTs.current = endNow;
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+      fromTouchTs.current = endNow;
+      onTapRef.current();
+    };
+
+    const onCancel = () => {
+      detachDoc();
+      active = null;
+      slopExceeded = false;
+      suppressUntilTs.current = Date.now();
+    };
+
+    const capture = true;
+    el.addEventListener("touchstart", onStart, { passive: true, capture });
+    el.addEventListener("touchend", onEnd, { passive: false, capture });
+    el.addEventListener("touchcancel", onCancel, { capture });
+
+    return () => {
+      detachDoc();
+      el.removeEventListener("touchstart", onStart, { capture });
+      el.removeEventListener("touchend", onEnd, { capture });
+      el.removeEventListener("touchcancel", onCancel, { capture });
+    };
+  }, []);
+
+  return useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    if (Date.now() - suppressUntilTs.current < 550) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (Date.now() - fromTouchTs.current < 700) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onTapRef.current();
+  }, []);
+}
 
 function expandedHeightPx(): number {
   return Math.round(window.innerHeight * EXPANDED_VH);
@@ -477,10 +597,10 @@ export function ArrivalsDrawer(props: {
     setTranslateY(expandedRef.current ? 0 : previewRestY(ph()));
   };
 
-  // --- Scroll-area: intercept overscroll at boundaries via touch events ---
+  // --- Scroll-area: expanded only — overscroll at top/bottom pulls the sheet. Preview uses chip strip + handle; leaving these on in preview confuses the next tap after expand/collapse (stale gestures, preventDefault vs click). ---
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller || !props.open) return;
+    if (!scroller || !props.open || !expanded) return;
 
     const onTouchStart = (e: TouchEvent) => {
       if (chipsDragActive.current || chipsGesture.current) return;
@@ -544,9 +664,17 @@ export function ArrivalsDrawer(props: {
       scroller.removeEventListener("touchend", onTouchEnd);
       scroller.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [props.open]);
+  }, [expanded, props.open]);
 
   const CHIPS_DIR_THRESHOLD = 6;
+
+  /** Preview ↔ expanded resets chip scroll-vs-drag bookkeeping so the next tap isn't eaten (stale chipsGesture or pan preventDefault killing click). */
+  useEffect(() => {
+    chipsGesture.current = null;
+    chipsDragActive.current = false;
+    scrollPointerStartY.current = null;
+    scrollTakeover.current = false;
+  }, [expanded]);
 
   const cleanupChipsDoc = () => {
     if (chipsDocCleanup.current) {
@@ -597,6 +725,9 @@ export function ArrivalsDrawer(props: {
 
     const onStart = (e: TouchEvent) => {
       if (chipsGesture.current) return;
+      // Touches that begin on a route chip are taps; don't attach pan bookkeeping or
+      // the first touchmove can call preventDefault and block the click (iOS/WebKit).
+      if (isInteractiveTarget(e.target)) return;
       cleanupChipsDoc();
       const t = e.touches[0];
       chipsGesture.current = {
@@ -680,7 +811,7 @@ export function ArrivalsDrawer(props: {
 
         {/* Drag zone: handle + header */}
         <div
-          className="cursor-ns-resize touch-none select-none"
+          className="relative z-40 cursor-ns-resize touch-none select-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -712,27 +843,18 @@ export function ArrivalsDrawer(props: {
           ) : null}
         </div>
 
-        {/* Drag overlay — in preview mode or while a drag gesture is in progress.
-           When expanded, clicks must reach rows immediately (even mid transition,
-           mid-drag-expand from preview). Overlay keeps pointer-events: none once
-           expanded so hit-testing skips to the arrivals list underneath; ongoing
-           drags stay on whichever element called setPointerCapture (overlay or
-           handle). */}
+        {/* Non-interactive fill only — WAS pointer-blocking + catching drags/WebKit tapped the wrong layer */}
         {(!expanded || dragging) && (
           <div
-            className={`absolute bottom-0 left-0 right-0 z-10 touch-none select-none ${expanded ? "pointer-events-none" : ""}`}
-            style={{ top: 0 }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={cancelDrag}
+            className="pointer-events-none absolute inset-x-0 bottom-0 top-0 z-[5] touch-none select-none"
+            aria-hidden
           />
         )}
 
         {/* Scrollable content */}
         <div
           ref={scrollRef}
-          className={`relative z-20 mt-2 min-h-0 flex-1 overscroll-contain ${expanded ? "overflow-y-auto touch-auto" : "overflow-hidden"}`}
+          className={`relative z-[35] isolate mt-2 min-h-0 flex-1 overscroll-contain ${expanded ? "overflow-y-auto touch-manipulation" : "overflow-hidden"}`}
         >
           {query.isError && rows.length === 0 ? (
             <p className="text-sm text-red-400">
@@ -811,10 +933,7 @@ export function ArrivalsDrawer(props: {
               )}
             </>
           ) : (
-            <div
-              ref={chipsRef}
-              className="relative z-20 flex gap-2 overflow-x-scroll pb-1 select-none scrollbar-none"
-            >
+            <div ref={chipsRef} className="relative z-[35] isolate flex gap-2 overflow-x-scroll pb-1 select-none scrollbar-none">
               {previewRows.map((row) => (
                 <PreviewChip
                   key={`${row.routeId}::${headsignKey(row.headsign)}`}
@@ -864,14 +983,18 @@ function PreviewChip({
     );
   };
 
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const onDedupedClick = useTouchPrimaryTap(btnRef, handleClick);
+
   const ariaLabel = chipActive
     ? `Clear highlight for ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`
     : `Highlight ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""} on the map; open the full list to filter`;
 
   return (
     <button
+      ref={btnRef}
       type="button"
-      onClick={handleClick}
+      onClick={onDedupedClick}
       aria-pressed={chipActive}
       aria-label={ariaLabel}
       className={`touch-manipulation flex shrink-0 flex-col rounded-lg border px-2.5 py-1.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 ${borderBg} ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
@@ -944,6 +1067,9 @@ function ExpandedRow({
     );
   };
 
+  const rowBtnRef = useRef<HTMLButtonElement>(null);
+  const onDedupedClick = useTouchPrimaryTap(rowBtnRef, handleClick);
+
   const ariaLabel = routeActive
     ? `Clear filter for ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`
     : `Show only ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`;
@@ -951,8 +1077,9 @@ function ExpandedRow({
   return (
     <li>
       <button
+        ref={rowBtnRef}
         type="button"
-        onClick={handleClick}
+        onClick={onDedupedClick}
         aria-pressed={routeActive}
         aria-label={ariaLabel}
         className={`flex w-full touch-manipulation items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tileClass}`}

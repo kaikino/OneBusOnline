@@ -68,6 +68,7 @@ export default function App() {
   const [userLocateSeq, setUserLocateSeq] = useState(0);
   const [collapseSeq, setCollapseSeq] = useState(0);
   const [previewHeight, setPreviewHeight] = useState(148);
+  const watchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     setRouteFilter(null);
@@ -200,23 +201,36 @@ export default function App() {
     locateErrorTimer.current = setTimeout(() => setLocateError(null), 3000);
   };
 
-  const watchIdRef = useRef<number | null>(null);
+  /** On load, fly the map to the user when the browser allows (no error toast if denied). */
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      applyPosition(pos, true);
+      ensureWatch();
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
+      (err) => {
+        if (!geolocationPermissionDenied(err)) {
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            () => {},
+            { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 20_000 }
+          );
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
+    );
+  }, []);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
 
-    const startWatch = () => {
-      if (watchIdRef.current !== null) return;
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => applyPosition(pos, false),
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 10_000 }
-      );
-    };
-
     void (async () => {
       const permission = await getPermissionState();
-      if (permission === "granted") startWatch();
+      if (permission === "granted") ensureWatch();
     })();
 
     return () => {

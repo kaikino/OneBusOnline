@@ -124,6 +124,13 @@ export function ArrivalsDrawer(props: {
 
   const closingRef = useRef(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Snapshot of `props.stop` taken at the moment the close animation begins.
+   *  We notify the parent immediately (so the selected-stop marker can
+   *  recolor and the locate button can drop back), but the drawer keeps
+   *  rendering for 500ms while sliding out — we read from this snapshot so
+   *  the title doesn't flicker to "Stop" mid-animation. */
+  const [closingStopSnapshot, setClosingStopSnapshot] = useState<StopSummary | null>(null);
+  const stopForDisplay = closingStopSnapshot ?? props.stop;
 
   const cancelClose = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -132,22 +139,28 @@ export function ArrivalsDrawer(props: {
     }
     closingRef.current = false;
     setClosing(false);
+    setClosingStopSnapshot(null);
   }, []);
 
   const animateClose = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
     setClosing(true);
+    setClosingStopSnapshot(props.stop);
     setDragging(false);
     draggingRef.current = false;
     setTranslateY(expandedHeightPx() + 40);
+    // Notify the parent right away so dependent UI (stop marker color,
+    // floating locate button) updates as soon as the slide-out starts,
+    // not 500ms later when the animation finishes.
+    props.onOpenChange(false);
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null;
       closingRef.current = false;
       setClosing(false);
-      props.onOpenChange(false);
+      setClosingStopSnapshot(null);
     }, 500);
-  }, [props.onOpenChange]);
+  }, [props.onOpenChange, props.stop]);
 
   const [minutesAfterLimit, setMinutesAfterLimit] = useState(
     ARRIVALS_QUERY_WINDOW.minutesAfter,
@@ -191,13 +204,19 @@ export function ArrivalsDrawer(props: {
       if (panel.contains(e.target)) return false;
       if (
         (e.target as Element).closest?.(
-          "button, .leaflet-control, input, [data-ui-control]"
+          "button, .leaflet-control, .leaflet-popup, .leaflet-marker-icon, input, [data-ui-control]"
         )
       )
         return false;
       return true;
     };
     const onDown = (e: PointerEvent) => {
+      // If a Leaflet popup (e.g. vehicle metadata) is currently open, let
+      // Leaflet handle the click — close the popup but keep the drawer.
+      if (document.querySelector(".leaflet-popup")) {
+        outsideDownRef.current = null;
+        return;
+      }
       if (isOutside(e)) {
         outsideDownRef.current = { x: e.clientX, y: e.clientY, stopId: stopIdRef.current };
       } else {
@@ -466,6 +485,11 @@ export function ArrivalsDrawer(props: {
     const onTouchStart = (e: TouchEvent) => {
       if (chipsDragActive.current || chipsGesture.current) return;
       if (e.touches.length !== 1) return;
+      // If the gesture starts on a control (route row tiles, etc.), skip
+      // overscroll→panel-drag bookkeeping. Otherwise a tiny downward move at
+      // scroll-top (or upward at scroll-bottom) can call preventDefault on
+      // touchmove before iOS emits the click — the classic "needs two taps".
+      if (isInteractiveTarget(e.target)) return;
       scrollPointerStartY.current = e.touches[0].clientY;
       scrollTakeover.current = false;
     };
@@ -668,7 +692,7 @@ export function ArrivalsDrawer(props: {
           <div className="flex items-start justify-between gap-2 pr-1">
             <h2 className={`flex items-center gap-2 text-lg font-semibold text-slate-50 ${!expanded ? "min-w-0 truncate" : ""}`}>
               <Bus className="h-5 w-5 shrink-0 text-sky-400" aria-hidden />
-              <span className={!expanded ? "truncate" : undefined}>{props.stop?.name ?? "Stop"}</span>
+              <span className={!expanded ? "truncate" : undefined}>{stopForDisplay?.name ?? "Stop"}</span>
             </h2>
             <button
               type="button"
@@ -683,15 +707,20 @@ export function ArrivalsDrawer(props: {
               />
             </button>
           </div>
-          {expanded && props.stop?.code ? (
-            <p className="mt-1 text-sm text-slate-400">{`Code ${props.stop.code}`}</p>
+          {expanded && stopForDisplay?.code ? (
+            <p className="mt-1 text-sm text-slate-400">{`Code ${stopForDisplay.code}`}</p>
           ) : null}
         </div>
 
-        {/* Drag overlay — in preview mode or during any active drag */}
+        {/* Drag overlay — in preview mode or while a drag gesture is in progress.
+           When expanded, clicks must reach rows immediately (even mid transition,
+           mid-drag-expand from preview). Overlay keeps pointer-events: none once
+           expanded so hit-testing skips to the arrivals list underneath; ongoing
+           drags stay on whichever element called setPointerCapture (overlay or
+           handle). */}
         {(!expanded || dragging) && (
           <div
-            className="absolute bottom-0 left-0 right-0 z-10 touch-none select-none"
+            className={`absolute bottom-0 left-0 right-0 z-10 touch-none select-none ${expanded ? "pointer-events-none" : ""}`}
             style={{ top: 0 }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -703,7 +732,7 @@ export function ArrivalsDrawer(props: {
         {/* Scrollable content */}
         <div
           ref={scrollRef}
-          className={`mt-2 min-h-0 flex-1 overscroll-contain ${expanded ? "overflow-y-auto touch-auto" : "overflow-hidden"}`}
+          className={`relative z-20 mt-2 min-h-0 flex-1 overscroll-contain ${expanded ? "overflow-y-auto touch-auto" : "overflow-hidden"}`}
         >
           {query.isError && rows.length === 0 ? (
             <p className="text-sm text-red-400">
@@ -887,7 +916,7 @@ function ExpandedRow({
         onClick={handleClick}
         aria-pressed={routeActive}
         aria-label={ariaLabel}
-        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tileClass}`}
+        className={`flex w-full touch-manipulation items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tileClass}`}
       >
         <div className="min-w-0">
           <div className={`font-medium ${isOld ? "text-slate-400" : "text-slate-100"}`}>

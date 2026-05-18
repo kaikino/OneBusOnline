@@ -64,3 +64,29 @@ path.map-stop-marker {
 .wheel-zooming .leaflet-marker-icon > div {
   scale: calc(1 / var(--wheel-zoom-scale, 1));
 }
+
+/* Vehicle popup: dark theme matching the app shell. */
+.vehicle-popup .leaflet-popup-content-wrapper {
+  background: #0f172a; /* slate-900 */
+  color: #e2e8f0; /* slate-200 */
+  border: 1px solid #334155; /* slate-700 */
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 0;
+}
+.vehicle-popup .leaflet-popup-content {
+  margin: 0.625rem 0.75rem;
+  font-family: inherit;
+  line-height: 1.25;
+}
+.vehicle-popup .leaflet-popup-tip {
+  background: #0f172a;
+  border: 1px solid #334155;
+  box-shadow: none;
+}
+.vehicle-popup a.leaflet-popup-close-button {
+  color: #94a3b8;
+}
+.vehicle-popup a.leaflet-popup-close-button:hover {
+  color: #e2e8f0;
+}

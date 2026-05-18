@@ -4,6 +4,8 @@ import type {
   ArrivalRow,
   ArrivalsForStopResponse,
   RouteShape,
+  RouteVehicle,
+  RouteVehiclesResponse,
   StopSummary,
 } from "@onebus/shared";
 import type { OnebusawaySDK } from "onebusaway-sdk";
@@ -171,6 +173,85 @@ export function normalizeRouteShape(
     polylines,
     stopIds,
   };
+}
+
+export function normalizeRouteVehicles(
+  routeId: string,
+  serverTimeMs: number,
+  list: Array<{
+    tripId: string;
+    status?: {
+      activeTripId?: string;
+      predicted?: boolean;
+      scheduleDeviation?: number;
+      lastUpdateTime?: number;
+      lastLocationUpdateTime?: number;
+      orientation?: number;
+      lastKnownOrientation?: number;
+      occupancyStatus?: string;
+      vehicleId?: string;
+      position?: { lat?: number; lon?: number };
+      lastKnownLocation?: { lat?: number; lon?: number };
+    };
+  }>,
+  refs: References | undefined
+): RouteVehiclesResponse {
+  const routes = routeMaps(refs);
+  const trips = new Map<
+    string,
+    { headsign?: string; routeId?: string; directionId?: string }
+  >();
+  for (const t of refs?.trips ?? []) {
+    trips.set(t.id, {
+      headsign: t.tripHeadsign,
+      routeId: t.routeId,
+      directionId: t.directionId,
+    });
+  }
+  const vehicles: RouteVehicle[] = [];
+  for (const item of list) {
+    const status = item.status;
+    if (!status) continue;
+    const pos = status.position ?? status.lastKnownLocation;
+    const lat = pos?.lat;
+    const lon = pos?.lon;
+    if (typeof lat !== "number" || typeof lon !== "number") continue;
+    const tripId = status.activeTripId ?? item.tripId;
+    const tripMeta = trips.get(tripId);
+    // Block-trip / interlining guard: if OBA tells us this vehicle is
+    // currently serving a trip on a *different* route (e.g. a bus that
+    // does Route 48 → Route 8 in one shift), the bus isn't actually
+    // running our route right now — don't plot it on the route map.
+    if (tripMeta?.routeId && tripMeta.routeId !== routeId) continue;
+    const orientation =
+      typeof status.orientation === "number"
+        ? status.orientation
+        : typeof status.lastKnownOrientation === "number"
+          ? status.lastKnownOrientation
+          : undefined;
+    const effectiveRouteId = tripMeta?.routeId ?? routeId;
+    const routeRef = routes.get(effectiveRouteId);
+    vehicles.push({
+      tripId,
+      routeId: effectiveRouteId,
+      routeShortName: routeRef?.shortName,
+      vehicleId: status.vehicleId,
+      lat,
+      lon,
+      orientation:
+        orientation != null && Number.isFinite(orientation)
+          ? ((orientation % 360) + 360) % 360
+          : undefined,
+      headsign: tripMeta?.headsign,
+      directionId: tripMeta?.directionId,
+      predicted: Boolean(status.predicted),
+      scheduleDeviationSec: status.scheduleDeviation ?? 0,
+      lastUpdateMs:
+        status.lastLocationUpdateTime || status.lastUpdateTime || serverTimeMs,
+      occupancyStatus: status.occupancyStatus || undefined,
+    });
+  }
+  return { routeId, serverTimeMs, vehicles };
 }
 
 export function normalizeAgencyCoverage(

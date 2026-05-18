@@ -1,4 +1,4 @@
-import type { StopSummary } from "@onebus/shared";
+import type { RouteVehicle, StopSummary } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import type L from "leaflet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import {
   MapContainer,
   Marker,
   Polyline,
+  Popup,
   TileLayer,
   ZoomControl,
   useMap,
@@ -15,6 +16,7 @@ import {
 import {
   bboxContainsOuter,
   fetchRouteShape,
+  fetchRouteVehicles,
   fetchStopsBbox,
   fetchStopsSnapshot,
   quantizeBboxForCache,
@@ -562,6 +564,184 @@ function decodePolyline(str: string): [number, number][] {
   return coords;
 }
 
+const VEHICLE_ICON_CACHE = new Map<string, L.DivIcon>();
+
+function vehicleIcon(orientation?: number, predicted = true): L.DivIcon {
+  const hasDir = orientation != null && Number.isFinite(orientation);
+  const key = `${predicted ? "p" : "s"}:${hasDir ? `o:${Math.round(orientation!)}` : "x"}`;
+  const cached = VEHICLE_ICON_CACHE.get(key);
+  if (cached) return cached;
+
+  const size = 22;
+  const half = size / 2;
+  const dot = 14;
+  const dotOffset = (size - dot) / 2;
+  const color = "#f97316"; // orange-500 — distinct from sky stops + green user
+  const border = "#ffffff";
+  const wrapperOpacity = predicted ? 1 : 0.45;
+  const dotShadow = predicted
+    ? "box-shadow:0 0 6px rgba(249,115,22,0.55);"
+    : "";
+
+  let html = "";
+  if (hasDir) {
+    const triW = 12;
+    const triH = 9;
+    const triLeft = (size - triW) / 2;
+    const triTop = (size - triH) / 2;
+    html += `<div style="position:absolute;left:${triLeft}px;top:${triTop}px;width:${triW}px;height:${triH}px;clip-path:polygon(50% 0%,0% 100%,100% 100%);background:${color};outline:1.5px solid ${border};transform:rotate(${orientation}deg) translateY(-${half - 1}px);transform-origin:50% 50%;"></div>`;
+  }
+  html += `<div style="position:absolute;left:${dotOffset}px;top:${dotOffset}px;width:${dot}px;height:${dot}px;border-radius:50%;background:${color};border:2px solid ${border};${dotShadow}"></div>`;
+
+  const icon = leaflet.divIcon({
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [half, half],
+    html: `<div style="position:relative;width:${size}px;height:${size}px;opacity:${wrapperOpacity};">${html}</div>`,
+  });
+  VEHICLE_ICON_CACHE.set(key, icon);
+  return icon;
+}
+
+function vehicleKey(v: RouteVehicle): string {
+  // tripId first — `vehicleId` can be reused across trips in some agencies,
+  // which would collapse two real buses to one React key and visually drop a
+  // marker. Pair it with vehicleId so reassignments mid-day still re-key.
+  return `${v.tripId}::${v.vehicleId ?? ""}`;
+}
+
+function formatRelativeAge(deltaMs: number): string {
+  const sec = Math.max(0, Math.round(deltaMs / 1000));
+  if (sec < 60) return `${sec} s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  return `${hr} hr ago`;
+}
+
+function VehiclePopupContent({ v }: { v: RouteVehicle }) {
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const ageMs = tick - v.lastUpdateMs;
+  const ageLabel = formatRelativeAge(ageMs);
+  const stale = ageMs > 60_000;
+
+  const source = (() => {
+    if (!v.predicted) {
+      return {
+        label: "Scheduled position",
+        cls: "text-amber-400",
+      };
+    }
+    if (stale) {
+      return {
+        label: `Last GPS · ${ageLabel}`,
+        cls: "text-amber-300",
+      };
+    }
+    return {
+      label: `Live GPS · ${ageLabel}`,
+      cls: "text-emerald-400",
+    };
+  })();
+
+  const dev = v.scheduleDeviationSec || 0;
+  const punctuality = (() => {
+    if (!v.predicted) return { label: "Scheduled (no live update)", cls: "text-slate-400" };
+    if (Math.abs(dev) < 90) return { label: "On time", cls: "text-emerald-400" };
+    if (dev > 0) {
+      const m = Math.max(1, Math.round(dev / 60));
+      return { label: `${m} min late`, cls: "text-amber-400" };
+    }
+    const m = Math.max(1, Math.round(Math.abs(dev) / 60));
+    return { label: `${m} min early`, cls: "text-sky-300" };
+  })();
+
+  const occupancyLabel = (() => {
+    if (!v.occupancyStatus) return null;
+    return v.occupancyStatus
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  })();
+
+  return (
+    <div className="min-w-[12rem] text-slate-100">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-base font-semibold text-sky-300">
+          {v.routeShortName ?? v.routeId}
+        </span>
+        {v.headsign ? (
+          <span className="truncate text-sm text-slate-300">→ {v.headsign}</span>
+        ) : null}
+      </div>
+      <div className={`mt-1 text-sm font-medium ${punctuality.cls}`}>
+        {punctuality.label}
+      </div>
+      <div className={`mt-0.5 text-xs ${source.cls}`}>{source.label}</div>
+      {v.vehicleId || occupancyLabel ? (
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-slate-300">
+          {v.vehicleId ? (
+            <>
+              <dt className="text-slate-500">Bus</dt>
+              <dd className="font-mono">{v.vehicleId}</dd>
+            </>
+          ) : null}
+          {occupancyLabel ? (
+            <>
+              <dt className="text-slate-500">Occupancy</dt>
+              <dd>{occupancyLabel}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+const RouteVehiclesLayer = memo(
+  function RouteVehiclesLayer({ routeId }: { routeId: string }) {
+    const query = useQuery({
+      queryKey: ["routeVehicles", routeId],
+      queryFn: () => fetchRouteVehicles(routeId),
+      staleTime: 10_000,
+      gcTime: 5 * 60 * 1000,
+      refetchInterval: 15_000,
+      refetchOnWindowFocus: true,
+    });
+
+    const vehicles = query.data?.vehicles ?? [];
+    if (vehicles.length === 0) return null;
+
+    return (
+      <>
+        {vehicles.map((v) => (
+          <Marker
+            key={vehicleKey(v)}
+            position={[v.lat, v.lon]}
+            icon={vehicleIcon(v.orientation, v.predicted)}
+            zIndexOffset={500}
+          >
+            <Popup
+              className="vehicle-popup"
+              closeButton={false}
+              maxWidth={260}
+              autoPan
+            >
+              <VehiclePopupContent v={v} />
+            </Popup>
+          </Marker>
+        ))}
+      </>
+    );
+  },
+  (prev, next) => prev.routeId === next.routeId
+);
+
 const RoutePolylineLayer = memo(
   function RoutePolylineLayer({ routeId }: { routeId: string }) {
     const shapeQuery = useQuery({
@@ -802,7 +982,10 @@ export function TransitMap(props: {
       <ViewportReporter onViewportChange={onViewportChange} />
       {flyTarget}
       {props.routeFilter?.routeId ? (
-        <RoutePolylineLayer routeId={props.routeFilter.routeId} />
+        <>
+          <RoutePolylineLayer routeId={props.routeFilter.routeId} />
+          <RouteVehiclesLayer routeId={props.routeFilter.routeId} />
+        </>
       ) : null}
       {props.userLat !== undefined && props.userLon !== undefined ? (
         <Marker

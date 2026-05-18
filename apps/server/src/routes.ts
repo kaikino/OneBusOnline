@@ -139,6 +139,24 @@ export function apiRoutes(service: ObaService): Router {
     res.json(data);
   });
 
+  r.get("/routes/:id/vehicles", async (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const routeId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!routeId) {
+      res.status(400).json({ error: "Missing route id" });
+      return;
+    }
+    try {
+      const data = await service.routeVehicles(routeId);
+      res.setHeader("Cache-Control", "public, max-age=10");
+      res.json(data);
+    } catch (e) {
+      res.status(502).json({
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
   r.get("/routes/:id/stops", async (req: Request, res: Response) => {
     const rawId = req.params.id;
     const routeId = Array.isArray(rawId) ? rawId[0] : rawId;

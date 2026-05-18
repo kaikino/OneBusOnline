@@ -3,6 +3,7 @@ import type {
   ArrivalsForStopResponse,
   HealthResponse,
   RouteShape,
+  RouteVehiclesResponse,
   StopSummary,
 } from "@onebus/shared";
 import { quantizeBboxForCache, stopsBboxCacheKey } from "@onebus/shared";
@@ -12,6 +13,7 @@ import {
   normalizeAgencyCoverage,
   normalizeArrivals,
   normalizeRouteShape,
+  normalizeRouteVehicles,
   normalizeStops,
 } from "./normalize.js";
 import { obaCall } from "./obaRateLimit.js";
@@ -26,6 +28,9 @@ import {
 const stopsMetaTtl = Number(process.env.CACHE_STOPS_TTL_SEC ?? 600);
 const arrivalsTtl = Number(process.env.CACHE_ARRIVALS_TTL_SEC ?? 25);
 const routeShapeTtl = Number(process.env.CACHE_ROUTE_SHAPE_TTL_SEC ?? 86_400);
+const routeVehiclesTtl = Number(
+  process.env.CACHE_ROUTE_VEHICLES_TTL_SEC ?? 15
+);
 
 const arrivalsDefaultAfter = (() => {
   const n = Number(process.env.ARRIVALS_MINUTES_AFTER_DEFAULT ?? 120);
@@ -291,6 +296,25 @@ export class ObaService {
 
     const out = normalizeStops(list, refs, origin);
     await cacheSetStops(key, out, stopsMetaTtl);
+    return out;
+  }
+
+  async routeVehicles(routeId: string): Promise<RouteVehiclesResponse> {
+    const key = `route-vehicles:${routeId}`;
+    const raw = await cacheGet(key);
+    if (raw) {
+      try {
+        return JSON.parse(raw) as RouteVehiclesResponse;
+      } catch { /* fall through */ }
+    }
+    const res = await obaCall("tripsForRoute", () =>
+      this.client.tripsForRoute.list(routeId, { includeStatus: true })
+    );
+    const list = res.data?.list ?? [];
+    const refs = res.data?.references;
+    const serverTimeMs = res.currentTime ?? Date.now();
+    const out = normalizeRouteVehicles(routeId, serverTimeMs, list, refs);
+    await cacheSet(key, JSON.stringify(out), routeVehiclesTtl);
     return out;
   }
 

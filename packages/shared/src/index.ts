@@ -60,6 +60,31 @@ export interface RouteShape {
   stopIds: string[];
 }
 
+/** Live vehicle position for an active trip on a route. */
+export interface RouteVehicle {
+  tripId: string;
+  routeId: string;
+  routeShortName?: string;
+  vehicleId?: string;
+  lat: number;
+  lon: number;
+  /** Degrees, 0 = north, clockwise. Absent when OBA didn't report orientation. */
+  orientation?: number;
+  headsign?: string;
+  directionId?: string;
+  predicted: boolean;
+  scheduleDeviationSec: number;
+  /** Last real-time location update (ms since epoch). */
+  lastUpdateMs: number;
+  occupancyStatus?: string;
+}
+
+export interface RouteVehiclesResponse {
+  routeId: string;
+  serverTimeMs: number;
+  vehicles: RouteVehicle[];
+}
+
 export interface HealthResponse {
   ok: boolean;
   obaConfigured: boolean;

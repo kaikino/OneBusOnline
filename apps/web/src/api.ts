@@ -5,6 +5,7 @@ import {
   type ArrivalsForStopResponse,
   type BboxParams,
   type RouteShape,
+  type RouteVehiclesResponse,
   type StopSummary,
 } from "@onebus/shared";
 export type { BboxParams };
@@ -120,6 +121,12 @@ export function arrivalsLocalStorageKey(
 
 export function fetchRouteShape(routeId: string): Promise<RouteShape> {
   return getJson(`/api/v1/routes/${encodeURIComponent(routeId)}/stops`);
+}
+
+export function fetchRouteVehicles(
+  routeId: string
+): Promise<RouteVehiclesResponse> {
+  return getJson(`/api/v1/routes/${encodeURIComponent(routeId)}/vehicles`);
 }
 
 export function fetchArrivals(

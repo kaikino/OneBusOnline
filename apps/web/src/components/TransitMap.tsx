@@ -9,7 +9,7 @@ import {
 } from "@onebus/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type DivIcon, type Map as LeafletMap, divIcon } from "leaflet";
-import { type Ref, useCallback, useEffect, useMemo, useState } from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
@@ -159,10 +159,15 @@ function useStops(viewport: Viewport | null): Stop[] {
   }, [stops, viewport]);
 }
 
-function ViewportReporter({ onChange }: { onChange: (viewport: Viewport) => void }) {
-  const report = () => {
+function MapEvents(props: {
+  onViewportChange: (viewport: Viewport) => void;
+  onBackgroundClick: () => void;
+}) {
+  const popupOpen = useRef(false);
+
+  const reportViewport = () => {
     const bounds = map.getBounds();
-    onChange({
+    props.onViewportChange({
       zoom: map.getZoom(),
       bbox: {
         minLat: bounds.getSouth(),
@@ -173,9 +178,15 @@ function ViewportReporter({ onChange }: { onChange: (viewport: Viewport) => void
     });
   };
 
-  const map = useMapEvents({ moveend: report });
+  const map = useMapEvents({
+    moveend: reportViewport,
+    popupopen: () => (popupOpen.current = true),
+    popupclose: () => (popupOpen.current = false),
+    // A tap on the map dismisses an open popup first, and only then reaches the app.
+    click: () => (popupOpen.current ? map.closePopup() : props.onBackgroundClick()),
+  });
 
-  useEffect(report, [map]);
+  useEffect(reportViewport, [map]);
 
   return null;
 }
@@ -284,6 +295,7 @@ interface Props {
   /** When set, the route and its buses are drawn and stops it doesn't serve are dimmed. */
   routeFilter: RouteFilter | null;
   onSelectStop: (stop: Stop) => void;
+  onBackgroundClick: () => void;
 }
 
 export function TransitMap({
@@ -292,6 +304,7 @@ export function TransitMap({
   selectedStop,
   routeFilter,
   onSelectStop,
+  onBackgroundClick,
 }: Props) {
   const [viewport, setViewport] = useState<Viewport | null>(null);
   const stops = useStops(viewport);
@@ -316,11 +329,12 @@ export function TransitMap({
       ]}
       maxBoundsViscosity={1}
       zoomControl={false}
+      closePopupOnClick={false}
       className="h-full w-full"
     >
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
-      <ViewportReporter onChange={setViewport} />
+      <MapEvents onViewportChange={setViewport} onBackgroundClick={onBackgroundClick} />
       {routeFilter && (
         <>
           <RouteLine routeId={routeFilter.routeId} />

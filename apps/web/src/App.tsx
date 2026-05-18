@@ -172,6 +172,7 @@ export default function App() {
           selectedStop={stop}
           routeFilter={routeFilter}
           onSelectStop={selectStop}
+          onBackgroundClick={() => snapDrawer(drawerExpanded ? "preview" : "closed")}
         />
         <button
           type="button"

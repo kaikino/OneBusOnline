@@ -43,3 +43,15 @@ export interface RouteShape {
   /** Google-encoded polylines. */
   polylines: string[];
 }
+
+export interface Vehicle {
+  tripId: string;
+  vehicleId?: string;
+  headsign?: string;
+  lat: number;
+  lon: number;
+  /** Degrees clockwise from north. */
+  heading?: number;
+  /** False when the position is interpolated from the schedule. */
+  hasGps: boolean;
+}

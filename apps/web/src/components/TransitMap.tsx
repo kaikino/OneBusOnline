@@ -17,7 +17,12 @@ import {
   ZoomControl,
   useMapEvents,
 } from "react-leaflet";
-import { fetchRouteShape, fetchStopsInBbox, fetchStopsSnapshot } from "../api";
+import {
+  fetchRouteShape,
+  fetchRouteVehicles,
+  fetchStopsInBbox,
+  fetchStopsSnapshot,
+} from "../api";
 import { decodePolyline } from "../polyline";
 import type { RouteFilter } from "../routeFilter";
 import { loadSavedStops, saveStops } from "../stopsPersistence";
@@ -33,6 +38,7 @@ const MIN_FETCH_ZOOM = 13;
 const SAVE_DELAY_MS = 2000;
 
 const STOP_SIZE = 24;
+const VEHICLE_SIZE = 22;
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 // react-leaflet rebuilds a marker's DOM whenever its icon identity changes, so icons are shared.
@@ -60,6 +66,10 @@ type StopMarkerState = "default" | "selected" | "dimmed";
 function stopIcon(direction: string | undefined, state: StopMarkerState): DivIcon {
   const octant = COMPASS.indexOf(direction ?? "");
   return markerIcon(`marker-stop marker-${state}`, STOP_SIZE, octant < 0 ? undefined : octant * 45);
+}
+
+function vehicleIcon(heading: number | undefined, hasGps: boolean): DivIcon {
+  return markerIcon(`marker-vehicle ${hasGps ? "marker-live" : ""}`, VEHICLE_SIZE, heading);
 }
 
 const USER_ICON = divIcon({ className: "marker-user", iconSize: [16, 16] });
@@ -175,11 +185,37 @@ function RouteLine({ routeId }: { routeId: string }) {
   return <Polyline positions={lines} pathOptions={ROUTE_LINE_STYLE} interactive={false} />;
 }
 
+function RouteVehicles({ route }: { route: RouteFilter }) {
+  const { data: vehicles = [] } = useQuery({
+    queryKey: ["routeVehicles", route.routeId],
+    queryFn: () => fetchRouteVehicles(route.routeId),
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
+  return (
+    <>
+      {vehicles
+        .filter((vehicle) => vehicle.headsign === route.headsign)
+        .map((vehicle) => (
+          <Marker
+            key={vehicle.vehicleId ?? vehicle.tripId}
+            position={[vehicle.lat, vehicle.lon]}
+            icon={vehicleIcon(vehicle.heading, vehicle.hasGps)}
+            zIndexOffset={500}
+            interactive={false}
+          />
+        ))}
+    </>
+  );
+}
+
 interface Props {
   ref: Ref<LeafletMap>;
   userPosition?: LatLon;
   selectedStop: Stop | null;
-  /** When set, the route is drawn and stops it doesn't serve are dimmed. */
+  /** When set, the route and its buses are drawn and stops it doesn't serve are dimmed. */
   routeFilter: RouteFilter | null;
   onSelectStop: (stop: Stop) => void;
 }
@@ -219,7 +255,12 @@ export function TransitMap({
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
       <ViewportReporter onChange={setViewport} />
-      {routeFilter && <RouteLine routeId={routeFilter.routeId} />}
+      {routeFilter && (
+        <>
+          <RouteLine routeId={routeFilter.routeId} />
+          <RouteVehicles route={routeFilter} />
+        </>
+      )}
       {userPosition && (
         <Marker
           position={[userPosition.lat, userPosition.lon]}

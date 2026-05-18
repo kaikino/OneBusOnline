@@ -58,6 +58,17 @@ body,
   opacity: 1;
 }
 
+.marker-vehicle {
+  --color: #f97316;
+  --border: #fff;
+  --dot-inset: 4px;
+  opacity: 0.75;
+}
+.marker-vehicle.marker-live {
+  opacity: 1;
+  filter: drop-shadow(0 0 3px rgb(249 115 22 / 0.55));
+}
+
 .marker-user {
   border: 2.5px solid #fff;
   border-radius: 50%;

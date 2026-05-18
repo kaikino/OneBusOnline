@@ -1,6 +1,6 @@
 # OneBusOnline
 
-A mobile-first PWA for [OneBusAway](https://onebusaway.org/) transit data: stops on a map and real-time arrivals.
+A mobile-first PWA for [OneBusAway](https://onebusaway.org/) transit data: stops on a map, real-time arrivals, route shapes and live bus positions.
 
 - `apps/web`: React, Vite, Leaflet, TanStack Query, Tailwind.
 - `apps/server`: Express API that holds the OneBusAway key, normalizes responses and caches them in Redis.

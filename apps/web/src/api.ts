@@ -1,4 +1,11 @@
-import type { ArrivalsResponse, Bbox, LatLon, RouteShape, Stop } from "@onebus/shared";
+import type {
+  ArrivalsResponse,
+  Bbox,
+  LatLon,
+  RouteShape,
+  Stop,
+  Vehicle,
+} from "@onebus/shared";
 
 const BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1`;
 
@@ -29,3 +36,6 @@ export const fetchArrivals = (stopId: string, minutesAfter: number, minutesBefor
 
 export const fetchRouteShape = (routeId: string) =>
   get<RouteShape>(`/routes/${encodeURIComponent(routeId)}/shape`);
+
+export const fetchRouteVehicles = (routeId: string) =>
+  get<Vehicle[]>(`/routes/${encodeURIComponent(routeId)}/vehicles`);

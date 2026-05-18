@@ -1,4 +1,4 @@
-import type { Arrival, LatLon, Punctuality, RouteShape, Stop } from "@onebus/shared";
+import type { Arrival, LatLon, Punctuality, RouteShape, Stop, Vehicle } from "@onebus/shared";
 import type OnebusawaySDK from "onebusaway-sdk";
 import { haversineMeters } from "./geo.js";
 
@@ -6,6 +6,7 @@ type ObaStop = OnebusawaySDK.StopsForLocationListResponse.Data.List;
 type ObaArrival =
   OnebusawaySDK.ArrivalAndDepartureListResponse.Data.Entry.ArrivalsAndDeparture;
 type ObaRouteEntry = OnebusawaySDK.StopsForRouteListResponse.Data.Entry;
+type ObaTrips = OnebusawaySDK.TripsForRouteListResponse.Data;
 
 const ON_TIME_TOLERANCE_SEC = 90;
 
@@ -65,4 +66,37 @@ export function toRouteShape(routeId: string, entry: ObaRouteEntry): RouteShape 
         ? polylines
         : (entry.stopGroupings ?? []).flatMap((group) => points(group.polylines)),
   };
+}
+
+/** OBA orientation is counter-clockwise from east; map headings are clockwise from north. */
+function toHeading(orientation: number): number {
+  return (((90 - orientation) % 360) + 360) % 360;
+}
+
+export function toVehicles(routeId: string, { list, references }: ObaTrips): Vehicle[] {
+  const trips = new Map(references.trips.map((trip) => [trip.id, trip]));
+
+  const byVehicle = new Map<string, Vehicle>();
+  for (const { tripId: listedTripId, status } of list) {
+    const position = status?.position ?? status?.lastKnownLocation;
+    if (position?.lat === undefined || position.lon === undefined) continue;
+
+    // A bus can be listed under a later trip of its block while still serving
+    // another route; only plot it when its active trip is on this route.
+    const tripId = status.activeTripId || listedTripId;
+    const trip = trips.get(tripId);
+    if (trip?.routeId !== routeId) continue;
+
+    const orientation = status.orientation ?? status.lastKnownOrientation;
+    byVehicle.set(status.vehicleId ?? tripId, {
+      tripId,
+      vehicleId: status.vehicleId,
+      headsign: trip.tripHeadsign,
+      lat: position.lat,
+      lon: position.lon,
+      heading: orientation === undefined ? undefined : toHeading(orientation),
+      hasGps: (status.lastLocationUpdateTime ?? 0) > 0,
+    });
+  }
+  return [...byVehicle.values()];
 }

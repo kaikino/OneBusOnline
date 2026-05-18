@@ -18,6 +18,7 @@ import {
   hasDeparted,
   punctualityLabel,
 } from "../arrivalUi";
+import { useNow } from "../hooks/useNow";
 import { useOnline } from "../hooks/useOnline";
 import { type RouteFilter, matchesRoute } from "../routeFilter";
 
@@ -87,16 +88,6 @@ function useArrivals(stopId: string | undefined) {
     refresh: () => void query.refetch(),
     extend: () => setMinutesAfter((minutes) => minutes + EXTEND_STEP_MINUTES),
   };
-}
-
-/** The current time, refreshed every `intervalMs`. */
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
 }
 
 export type SheetSnap = "expanded" | "preview" | "closed";
@@ -242,9 +233,25 @@ function nextPerRoute(arrivals: Arrival[], now: number): Arrival[] {
   return [...next.values()];
 }
 
-function ArrivalChip({ arrival, now }: { arrival: Arrival; now: number }) {
+interface ToggleProps {
+  arrival: Arrival;
+  now: number;
+  active: boolean;
+  onToggle: () => void;
+}
+
+function ArrivalChip({ arrival, now, active, onToggle }: ToggleProps) {
   return (
-    <div className="flex shrink-0 flex-col rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5">
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      className={`flex shrink-0 flex-col rounded-lg border px-2.5 py-1.5 text-left transition ${
+        active
+          ? "border-slate-300/70 bg-slate-900"
+          : "border-slate-700 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900"
+      }`}
+    >
       <span className="flex items-center gap-1.5 text-sm">
         <span className="font-bold text-sky-300">{arrival.routeShortName}</span>
         <span className={`font-semibold tabular-nums ${PUNCTUALITY_COLOR[arrival.punctuality]}`}>
@@ -254,18 +261,11 @@ function ArrivalChip({ arrival, now }: { arrival: Arrival; now: number }) {
       <span className="max-w-[7rem] truncate text-[0.65rem] leading-tight text-slate-400">
         {arrival.headsign}
       </span>
-    </div>
+    </button>
   );
 }
 
-interface ArrivalRowProps {
-  arrival: Arrival;
-  now: number;
-  active: boolean;
-  onToggle: () => void;
-}
-
-function ArrivalRow({ arrival, now, active, onToggle }: ArrivalRowProps) {
+function ArrivalRow({ arrival, now, active, onToggle }: ToggleProps) {
   const departed = hasDeparted(arrival.arrivalTimeMs, now);
 
   let tile = "border-slate-800 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900";
@@ -413,7 +413,7 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
           ) : (
             <div className="scrollbar-none flex gap-2 overflow-x-auto">
               {nextPerRoute(arrivals, now).map((arrival) => (
-                <ArrivalChip key={routeKey(arrival)} arrival={arrival} now={now} />
+                <ArrivalChip key={routeKey(arrival)} {...toggleProps(arrival)} />
               ))}
             </div>
           )}

@@ -47,6 +47,7 @@ export interface RouteShape {
 export interface Vehicle {
   tripId: string;
   vehicleId?: string;
+  routeShortName: string;
   headsign?: string;
   lat: number;
   lon: number;
@@ -54,4 +55,9 @@ export interface Vehicle {
   heading?: number;
   /** False when the position is interpolated from the schedule. */
   hasGps: boolean;
+  /** Whether the trip has real-time schedule data. */
+  predicted: boolean;
+  deviationSec: number;
+  lastUpdateMs: number;
+  occupancy?: string;
 }

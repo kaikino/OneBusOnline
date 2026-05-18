@@ -75,6 +75,8 @@ function toHeading(orientation: number): number {
 
 export function toVehicles(routeId: string, { list, references }: ObaTrips): Vehicle[] {
   const trips = new Map(references.trips.map((trip) => [trip.id, trip]));
+  const route = references.routes.find((r) => r.id === routeId);
+  const routeShortName = route?.shortName || route?.longName || routeId;
 
   const byVehicle = new Map<string, Vehicle>();
   for (const { tripId: listedTripId, status } of list) {
@@ -88,15 +90,25 @@ export function toVehicles(routeId: string, { list, references }: ObaTrips): Veh
     if (trip?.routeId !== routeId) continue;
 
     const orientation = status.orientation ?? status.lastKnownOrientation;
-    byVehicle.set(status.vehicleId ?? tripId, {
+    const hasGps = (status.lastLocationUpdateTime ?? 0) > 0;
+    const vehicle: Vehicle = {
       tripId,
       vehicleId: status.vehicleId,
+      routeShortName,
       headsign: trip.tripHeadsign,
       lat: position.lat,
       lon: position.lon,
       heading: orientation === undefined ? undefined : toHeading(orientation),
-      hasGps: (status.lastLocationUpdateTime ?? 0) > 0,
-    });
+      hasGps,
+      predicted: status.predicted,
+      deviationSec: status.scheduleDeviation,
+      lastUpdateMs: (hasGps ? status.lastLocationUpdateTime : status.lastUpdateTime) || Date.now(),
+      occupancy: status.occupancyStatus || undefined,
+    };
+
+    const key = vehicle.vehicleId ?? tripId;
+    const existing = byVehicle.get(key);
+    if (!existing || vehicle.lastUpdateMs >= existing.lastUpdateMs) byVehicle.set(key, vehicle);
   }
   return [...byVehicle.values()];
 }

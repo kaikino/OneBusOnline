@@ -27,3 +27,11 @@ export function punctualityLabel(punctuality: Punctuality, deviationSec: number)
   const minutes = Math.max(1, Math.round(Math.abs(deviationSec) / 60));
   return `${minutes} min ${punctuality}`;
 }
+
+export function formatAge(ageMs: number): string {
+  const seconds = Math.max(0, Math.round(ageMs / 1000));
+  if (seconds < 60) return `${seconds} s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.round(minutes / 60)} hr ago`;
+}

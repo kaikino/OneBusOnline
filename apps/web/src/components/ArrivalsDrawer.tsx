@@ -58,7 +58,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
  */
 export type RouteFilter = { routeId: string; headsign: string };
 
-function headsignKey(h: string | undefined | null): string {
+export function headsignKey(h: string | undefined | null): string {
   return (h ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
@@ -300,28 +300,28 @@ export function ArrivalsDrawer(props: {
 
   const routeFilter = props.routeFilter ?? null;
 
-  const displayedRows = useMemo(() => {
-    const filtered = routeFilter
-      ? rows.filter((r) => rowMatchesFilter(r, routeFilter))
-      : rows;
-    // OBA can occasionally return two entries for the same trip+stop+time
-    // (e.g. a scheduled + predicted record). Collapse to one row per arrival.
+  const dedupedRows = useMemo(() => {
     const seen = new Set<string>();
     const out: ArrivalRow[] = [];
-    for (const r of filtered) {
+    for (const r of rows) {
       const key = `${r.tripId}::${r.stopId}::${r.scheduledArrivalTimeMs}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(r);
     }
     return out;
-  }, [rows, routeFilter]);
+  }, [rows]);
+
+  const displayedRows = useMemo(() => {
+    if (!routeFilter) return dedupedRows;
+    return dedupedRows.filter((r) => rowMatchesFilter(r, routeFilter));
+  }, [dedupedRows, routeFilter]);
 
   const previewRows = useMemo(() => {
     const out: ArrivalRow[] = [];
     const seen = new Set<string>();
-    for (const row of displayedRows) {
-      const routeKey = `${row.routeId || row.routeShortName}::${row.headsign || ""}`;
+    for (const row of dedupedRows) {
+      const routeKey = `${row.routeId || row.routeShortName}::${headsignKey(row.headsign)}`;
       if (seen.has(routeKey)) continue;
       const mins = minutesUntil(displayTimeMs(row), props.nowMs);
       if (mins <= -1) continue;
@@ -329,7 +329,7 @@ export function ArrivalsDrawer(props: {
       out.push(row);
     }
     return out;
-  }, [displayedRows, props.nowMs]);
+  }, [dedupedRows, props.nowMs]);
 
   const filteredRouteLabel = useMemo(() => {
     if (!routeFilter) return null;
@@ -816,7 +816,13 @@ export function ArrivalsDrawer(props: {
               className="relative z-20 flex gap-2 overflow-x-scroll pb-1 select-none scrollbar-none"
             >
               {previewRows.map((row) => (
-                <PreviewChip key={`${row.tripId}-${row.scheduledArrivalTimeMs}`} row={row} nowMs={props.nowMs} />
+                <PreviewChip
+                  key={`${row.routeId}::${headsignKey(row.headsign)}`}
+                  row={row}
+                  nowMs={props.nowMs}
+                  routeFilter={routeFilter}
+                  onRouteFilterChange={props.onRouteFilterChange}
+                />
               ))}
             </div>
           )}
@@ -828,16 +834,47 @@ export function ArrivalsDrawer(props: {
 
 /* ─── Sub-components ─── */
 
-function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
+function PreviewChip({
+  row,
+  nowMs,
+  routeFilter,
+  onRouteFilterChange,
+}: {
+  row: ArrivalRow;
+  nowMs: number;
+  routeFilter: RouteFilter | null;
+  onRouteFilterChange?: (filter: RouteFilter | null) => void;
+}) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
   const roundedMins = Math.trunc(mins);
   const label = roundedMins === 0 ? "NOW" : mins < 1 && mins >= 0 ? "<1 min" : `${roundedMins} min`;
   const isOld = mins <= -1;
+  const chipActive = routeFilter != null && rowMatchesFilter(row, routeFilter);
+  const borderBg = isOld
+    ? "border-slate-800 bg-slate-900/60"
+    : chipActive
+      ? "border-slate-300/70 bg-slate-900"
+      : "border-slate-700 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900";
+
+  const handleClick = () => {
+    if (!onRouteFilterChange) return;
+    onRouteFilterChange(
+      chipActive ? null : { routeId: row.routeId, headsign: headsignKey(row.headsign) },
+    );
+  };
+
+  const ariaLabel = chipActive
+    ? `Clear highlight for ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""}`
+    : `Highlight ${row.routeShortName}${row.headsign ? ` toward ${row.headsign}` : ""} on the map; open the full list to filter`;
 
   return (
-    <div
-      className={`flex shrink-0 flex-col rounded-lg border border-slate-700 bg-slate-900/80 px-2.5 py-1.5 ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-pressed={chipActive}
+      aria-label={ariaLabel}
+      className={`touch-manipulation flex shrink-0 flex-col rounded-lg border px-2.5 py-1.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 ${borderBg} ${isOld ? "text-slate-400" : punctualityClasses(row.punctuality)}`}
     >
       <div className="flex items-center gap-1.5">
         <span className={`text-sm font-bold ${isOld ? "text-slate-400" : "text-sky-300"}`}>
@@ -846,11 +883,13 @@ function PreviewChip({ row, nowMs }: { row: any; nowMs: number }) {
         <span className="text-sm font-semibold tabular-nums">{label}</span>
       </div>
       {row.headsign && (
-        <span className={`text-[0.65rem] truncate max-w-[7rem] leading-tight ${isOld ? "text-slate-500" : "text-slate-400"}`}>
+        <span
+          className={`max-w-[7rem] truncate text-[0.65rem] leading-tight ${isOld ? "text-slate-500" : "text-slate-400"}`}
+        >
           {row.headsign}
         </span>
       )}
-    </div>
+    </button>
   );
 }
 

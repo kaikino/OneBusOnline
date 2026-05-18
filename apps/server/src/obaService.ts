@@ -300,7 +300,7 @@ export class ObaService {
   }
 
   async routeVehicles(routeId: string): Promise<RouteVehiclesResponse> {
-    const key = `route-vehicles:${routeId}`;
+    const key = `route-vehicles:2:${routeId}`;
     const raw = await cacheGet(key);
     if (raw) {
       try {

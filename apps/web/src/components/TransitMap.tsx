@@ -1,4 +1,5 @@
 import type { RouteVehicle, StopSummary } from "@onebus/shared";
+import { headsignKey } from "./ArrivalsDrawer";
 import { useQuery } from "@tanstack/react-query";
 import type L from "leaflet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -566,9 +567,10 @@ function decodePolyline(str: string): [number, number][] {
 
 const VEHICLE_ICON_CACHE = new Map<string, L.DivIcon>();
 
-function vehicleIcon(orientation?: number, predicted = true): L.DivIcon {
+/** `liveGps`: full opacity + glow; schedule-interpolated coords are dimmed like non-AVL. */
+function vehicleIcon(orientation?: number, liveGps = true): L.DivIcon {
   const hasDir = orientation != null && Number.isFinite(orientation);
-  const key = `${predicted ? "p" : "s"}:${hasDir ? `o:${Math.round(orientation!)}` : "x"}`;
+  const key = `${liveGps ? "g" : "s"}:${hasDir ? `o:${Math.round(orientation!)}` : "x"}`;
   const cached = VEHICLE_ICON_CACHE.get(key);
   if (cached) return cached;
 
@@ -578,8 +580,8 @@ function vehicleIcon(orientation?: number, predicted = true): L.DivIcon {
   const dotOffset = (size - dot) / 2;
   const color = "#f97316"; // orange-500 — distinct from sky stops + green user
   const border = "#ffffff";
-  const wrapperOpacity = predicted ? 1 : 0.45;
-  const dotShadow = predicted
+  const wrapperOpacity = liveGps ? 1 : 0.75;
+  const dotShadow = liveGps
     ? "box-shadow:0 0 6px rgba(249,115,22,0.55);"
     : "";
 
@@ -610,13 +612,28 @@ function vehicleKey(v: RouteVehicle): string {
   return `${v.tripId}::${v.vehicleId ?? ""}`;
 }
 
+/**
+ * Mirrors server `wallClockUnixMs`: some feeds/cache entries use unix seconds.
+ * Prefer fresh API data; keeps popups sane for older cached payloads.
+ */
+function coerceRealtimeEpochMs(ms: number): number {
+  if (!Number.isFinite(ms) || ms <= 0) return ms;
+  return ms >= 100_000_000_000 ? ms : ms * 1000;
+}
+
 function formatRelativeAge(deltaMs: number): string {
-  const sec = Math.max(0, Math.round(deltaMs / 1000));
+  if (!Number.isFinite(deltaMs)) return "unknown age";
+  const clampedMs = Math.max(0, deltaMs);
+  const sec = Math.round(clampedMs / 1000);
   if (sec < 60) return `${sec} s ago`;
   const min = Math.round(sec / 60);
   if (min < 60) return `${min} min ago`;
   const hr = Math.round(min / 60);
-  return `${hr} hr ago`;
+  if (hr < 48) return `${hr} hr ago`;
+  const day = Math.round(hr / 24);
+  if (day < 730) return `${Math.max(1, day)} days ago`;
+  const yr = Math.round(day / 365);
+  return `${Math.max(1, yr)} yrs ago`;
 }
 
 function VehiclePopupContent({ v }: { v: RouteVehicle }) {
@@ -626,15 +643,17 @@ function VehiclePopupContent({ v }: { v: RouteVehicle }) {
     return () => clearInterval(id);
   }, []);
 
-  const ageMs = tick - v.lastUpdateMs;
+  const liveGps = v.liveGpsPosition ?? v.predicted;
+  const lastMs = coerceRealtimeEpochMs(v.lastUpdateMs);
+  const ageMs = tick - lastMs;
   const ageLabel = formatRelativeAge(ageMs);
-  const stale = ageMs > 60_000;
+  const stale = liveGps && ageMs > 60_000;
 
   const source = (() => {
-    if (!v.predicted) {
+    if (!liveGps) {
       return {
-        label: "Scheduled position",
-        cls: "text-amber-400",
+        label: "Position from schedule",
+        cls: "text-red-400",
       };
     }
     if (stale) {
@@ -704,7 +723,12 @@ function VehiclePopupContent({ v }: { v: RouteVehicle }) {
 }
 
 const RouteVehiclesLayer = memo(
-  function RouteVehiclesLayer({ routeId }: { routeId: string }) {
+  function RouteVehiclesLayer(props: {
+    routeId: string;
+    /** Normalized headsing key (`RouteFilter.headsign`); restricts markers to direction. */
+    directionHeadsign?: string | null;
+  }) {
+    const { routeId, directionHeadsign } = props;
     const query = useQuery({
       queryKey: ["routeVehicles", routeId],
       queryFn: () => fetchRouteVehicles(routeId),
@@ -714,7 +738,14 @@ const RouteVehiclesLayer = memo(
       refetchOnWindowFocus: true,
     });
 
-    const vehicles = query.data?.vehicles ?? [];
+    const vehicles = useMemo(() => {
+      const list = query.data?.vehicles ?? [];
+      if (!directionHeadsign) return list;
+      return list.filter(
+        (v) => headsignKey(v.headsign) === directionHeadsign,
+      );
+    }, [directionHeadsign, query.data?.vehicles]);
+
     if (vehicles.length === 0) return null;
 
     return (
@@ -723,7 +754,7 @@ const RouteVehiclesLayer = memo(
           <Marker
             key={vehicleKey(v)}
             position={[v.lat, v.lon]}
-            icon={vehicleIcon(v.orientation, v.predicted)}
+            icon={vehicleIcon(v.orientation, v.liveGpsPosition ?? v.predicted)}
             zIndexOffset={500}
           >
             <Popup
@@ -984,7 +1015,10 @@ export function TransitMap(props: {
       {props.routeFilter?.routeId ? (
         <>
           <RoutePolylineLayer routeId={props.routeFilter.routeId} />
-          <RouteVehiclesLayer routeId={props.routeFilter.routeId} />
+          <RouteVehiclesLayer
+            routeId={props.routeFilter.routeId}
+            directionHeadsign={props.routeFilter.headsign}
+          />
         </>
       ) : null}
       {props.userLat !== undefined && props.userLon !== undefined ? (

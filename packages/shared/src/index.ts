@@ -72,9 +72,12 @@ export interface RouteVehicle {
   orientation?: number;
   headsign?: string;
   directionId?: string;
+  /** Real-time arrival/adjustment data (not the same as AVL position source). */
   predicted: boolean;
+  /** True only when OBA reports an actual vehicle location ping (non-zero lastLocationUpdateTime), not schedule interpolation. */
+  liveGpsPosition: boolean;
   scheduleDeviationSec: number;
-  /** Last real-time location update (ms since epoch). */
+  /** Best-effort update time: last GPS fix when `liveGpsPosition`, else last trip status time or server clock. */
   lastUpdateMs: number;
   occupancyStatus?: string;
 }

@@ -3,7 +3,8 @@ import { Crosshair, WifiOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchAgencyCoverage } from "./api";
-import { ArrivalsDrawer, type RouteFilter } from "./components/ArrivalsDrawer";
+import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
+import type { RouteFilter } from "./lib/routeFilter";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 

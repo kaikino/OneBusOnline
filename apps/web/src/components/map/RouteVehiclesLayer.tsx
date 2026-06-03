@@ -6,6 +6,7 @@ import { fetchRouteVehicles } from "../../api";
 import { headsignKey } from "../../lib/routeFilter";
 import { vehicleIcon, vehicleKey } from "../../lib/mapIcons";
 import { formatRelativeAge } from "../../lib/relativeTime";
+import { deviationMinutes } from "../../arrivalUi";
 
 /**
  * Mirrors server `wallClockUnixMs`: some feeds/cache entries use unix seconds.
@@ -53,11 +54,9 @@ function VehiclePopupContent({ v }: { v: RouteVehicle }) {
     if (!v.predicted) return { label: "Scheduled (no live update)", cls: "text-slate-400" };
     if (Math.abs(dev) < 90) return { label: "On time", cls: "text-emerald-400" };
     if (dev > 0) {
-      const m = Math.max(1, Math.round(dev / 60));
-      return { label: `${m} min late`, cls: "text-amber-400" };
+      return { label: `${deviationMinutes(dev)} min late`, cls: "text-amber-400" };
     }
-    const m = Math.max(1, Math.round(Math.abs(dev) / 60));
-    return { label: `${m} min early`, cls: "text-sky-300" };
+    return { label: `${deviationMinutes(dev)} min early`, cls: "text-sky-300" };
   })();
 
   const occupancyLabel = (() => {

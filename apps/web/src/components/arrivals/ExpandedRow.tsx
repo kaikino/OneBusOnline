@@ -1,6 +1,12 @@
 import type { ArrivalRow } from "@onebus/shared";
 import { useRef } from "react";
-import { displayTimeMs, minutesUntil, punctualityClasses } from "../../arrivalUi";
+import {
+  deviationMinutes,
+  displayTimeMs,
+  etaLabel,
+  minutesUntil,
+  punctualityClasses,
+} from "../../arrivalUi";
 import { headsignKey, rowMatchesFilter, type RouteFilter } from "../../lib/routeFilter";
 import { useTouchPrimaryTap } from "../../hooks/useTouchPrimaryTap";
 
@@ -23,22 +29,17 @@ export function ExpandedRow({
 }) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
-  const roundedMins = Math.trunc(mins);
-  const label = roundedMins === 0 ? "NOW" : mins < 1 && mins >= 0 ? "< 1 min" : `${roundedMins} min`;
+  const label = etaLabel(mins, "< 1 min");
   const isOld = mins <= -1;
   const scheduledOnly = row.punctuality === "scheduled_only";
   const etaStatus = (() => {
     if (scheduledOnly) return "Scheduled";
     if (row.punctuality === "on_time") return "Live • On time";
     if (row.punctuality === "late") {
-      const sec = row.scheduleDeviationSec ?? 0;
-      const minLate = Math.max(1, Math.round(sec / 60));
-      return `Live • ${minLate} min late`;
+      return `Live • ${deviationMinutes(row.scheduleDeviationSec ?? 0)} min late`;
     }
     if (row.punctuality === "early") {
-      const sec = Math.abs(row.scheduleDeviationSec ?? 0);
-      const minEarly = Math.max(1, Math.round(sec / 60));
-      return `Live • ${minEarly} min early`;
+      return `Live • ${deviationMinutes(row.scheduleDeviationSec ?? 0)} min early`;
     }
     return "Live";
   })();

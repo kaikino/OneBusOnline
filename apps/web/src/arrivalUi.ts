@@ -11,6 +11,22 @@ export function displayTimeMs(row: ArrivalRow): number {
   return row.scheduledArrivalTimeMs;
 }
 
+/**
+ * ETA pill label shared by the preview chips and expanded rows.
+ * `subMinuteLabel` differs by surface: chips render "<1 min", rows "< 1 min".
+ */
+export function etaLabel(mins: number, subMinuteLabel = "< 1 min"): string {
+  const roundedMins = Math.trunc(mins);
+  if (roundedMins === 0) return "NOW";
+  if (mins < 1 && mins >= 0) return subMinuteLabel;
+  return `${roundedMins} min`;
+}
+
+/** Absolute schedule deviation in whole minutes, floored at 1. */
+export function deviationMinutes(deviationSec: number): number {
+  return Math.max(1, Math.round(Math.abs(deviationSec) / 60));
+}
+
 export function punctualityClasses(p: ArrivalPunctuality): string {
   switch (p) {
     case "on_time":

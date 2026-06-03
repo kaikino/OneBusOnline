@@ -1,6 +1,6 @@
 import type { ArrivalRow } from "@onebus/shared";
 import { useRef } from "react";
-import { displayTimeMs, minutesUntil, punctualityClasses } from "../../arrivalUi";
+import { displayTimeMs, etaLabel, minutesUntil, punctualityClasses } from "../../arrivalUi";
 import { headsignKey, rowMatchesFilter, type RouteFilter } from "../../lib/routeFilter";
 import { useTouchPrimaryTap } from "../../hooks/useTouchPrimaryTap";
 
@@ -17,8 +17,7 @@ export function PreviewChip({
 }) {
   const t = displayTimeMs(row);
   const mins = minutesUntil(t, nowMs);
-  const roundedMins = Math.trunc(mins);
-  const label = roundedMins === 0 ? "NOW" : mins < 1 && mins >= 0 ? "<1 min" : `${roundedMins} min`;
+  const label = etaLabel(mins, "<1 min");
   const isOld = mins <= -1;
   const chipActive = routeFilter != null && rowMatchesFilter(row, routeFilter);
   const borderBg = isOld

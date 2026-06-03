@@ -2,15 +2,13 @@ import type { LatLon, Stop } from "@onebus/shared";
 import type { Map as LeafletMap } from "leaflet";
 import { Crosshair, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrivalsDrawer,
-  SHEET_PREVIEW_HEIGHT,
-  type SheetSnap,
-} from "./components/ArrivalsDrawer";
+import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
+import { SHEET_PREVIEW_HEIGHT } from "./components/BottomSheet";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 import { useOnline } from "./hooks/useOnline";
-import type { RouteFilter } from "./routeFilter";
+import type { SheetSnap } from "./hooks/useSheetDrag";
+import type { RouteFilter } from "./lib/routeFilter";
 
 const FOCUS_ZOOM = 15;
 

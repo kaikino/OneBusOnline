@@ -3,18 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { searchStops } from "../api";
+import { useDebounced } from "../hooks/useDebounced";
 
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 2;
-
-function useDebounced<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(id);
-  }, [value, delayMs]);
-  return debounced;
-}
 
 function stopDetails(stop: Stop): string {
   const distance =

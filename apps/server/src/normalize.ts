@@ -100,7 +100,7 @@ export function toVehicles(routeId: string, { list, references }: ObaTrips): Veh
       lon: position.lon,
       heading: orientation === undefined ? undefined : toHeading(orientation),
       hasGps,
-      predicted: status.predicted,
+      punctuality: punctuality(status.predicted, status.scheduleDeviation),
       deviationSec: status.scheduleDeviation,
       lastUpdateMs: (hasGps ? status.lastLocationUpdateTime : status.lastUpdateTime) || Date.now(),
       occupancy: status.occupancyStatus || undefined,

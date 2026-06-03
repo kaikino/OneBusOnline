@@ -55,8 +55,7 @@ export interface Vehicle {
   heading?: number;
   /** False when the position is interpolated from the schedule. */
   hasGps: boolean;
-  /** Whether the trip has real-time schedule data. */
-  predicted: boolean;
+  punctuality: Punctuality;
   deviationSec: number;
   lastUpdateMs: number;
   occupancy?: string;

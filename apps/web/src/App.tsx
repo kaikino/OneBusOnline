@@ -1,30 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Crosshair, WifiOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StopSummary } from "@onebus/shared";
 import { fetchAgencyCoverage } from "./api";
 import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
 import type { RouteFilter } from "./lib/routeFilter";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
-
-type GeoPermissionState = PermissionState | "unknown";
-
-/** Safari / some WebKit builds surface denial as DOMException instead of GeolocationPositionError. */
-function geolocationPermissionDenied(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as GeolocationPositionError & { name?: string };
-  if ("code" in e && typeof e.code === "number" && e.code === 1) return true;
-  const name = "name" in e && typeof e.name === "string" ? e.name : "";
-  return name === "NotAllowedError" || name === "PermissionDeniedError";
-}
-
-function geolocationTimedOut(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as GeolocationPositionError & { name?: string };
-  if ("code" in e && typeof e.code === "number" && e.code === 3) return true;
-  return e.name === "TimeoutError";
-}
+import { useGeolocation } from "./hooks/useGeolocation";
 
 function useTickMs(interval = 1000): number {
   const [t, setT] = useState(() => Date.now());
@@ -58,18 +41,25 @@ export default function App() {
   const [agencyCenter, setAgencyCenter] = useState<
     { lat: number; lon: number } | undefined
   >();
-  const [userLat, setUserLat] = useState<number>();
-  const [userLon, setUserLon] = useState<number>();
   const [flyToLat, setFlyToLat] = useState<number>();
   const [flyToLon, setFlyToLon] = useState<number>();
   const [selected, setSelected] = useState<StopSummary | null>(null);
   const [routeFilter, setRouteFilter] = useState<RouteFilter | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [locateError, setLocateError] = useState<string | null>(null);
   const [userLocateSeq, setUserLocateSeq] = useState(0);
   const [collapseSeq, setCollapseSeq] = useState(0);
   const [previewHeight, setPreviewHeight] = useState(148);
-  const watchIdRef = useRef<number | null>(null);
+
+  /** Move the map camera. `bumpSeq` re-fires FlyTo even when coords are
+   *  unchanged (used by the locate button); search keeps the camera where new
+   *  coords already differ, so it skips the bump. */
+  const flyTo = useCallback((lat: number, lon: number, bumpSeq = true) => {
+    setFlyToLat(lat);
+    setFlyToLon(lon);
+    if (bumpSeq) setUserLocateSeq((s) => s + 1);
+  }, []);
+
+  const { userLat, userLon, locating, locateError, locate, clearLocateError } =
+    useGeolocation(flyTo);
 
   useEffect(() => {
     setRouteFilter(null);
@@ -91,156 +81,6 @@ export default function App() {
       return { lat: first.lat, lon: first.lon };
     });
   }, [agenciesQuery.data]);
-
-  const applyPosition = (pos: GeolocationPosition, flyTo = true) => {
-    setUserLat(pos.coords.latitude);
-    setUserLon(pos.coords.longitude);
-    if (flyTo) {
-      setFlyToLat(pos.coords.latitude);
-      setFlyToLon(pos.coords.longitude);
-      setUserLocateSeq((s) => s + 1);
-    }
-    setLocateError(null);
-  };
-
-  const getPermissionState = async (): Promise<GeoPermissionState> => {
-    if (!("permissions" in navigator) || !navigator.permissions?.query) {
-      return "unknown";
-    }
-    try {
-      const status = await navigator.permissions.query({
-        name: "geolocation" as PermissionName,
-      });
-      return status.state;
-    } catch {
-      return "unknown";
-    }
-  };
-
-  const ensureWatch = () => {
-    if (watchIdRef.current !== null) return;
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => applyPosition(pos, false),
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 10_000 }
-    );
-  };
-
-  const locate = () => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocateError("Location is not supported on this device.");
-      return;
-    }
-    setLocateError(null);
-
-    if (userLat !== undefined && userLon !== undefined) {
-      setFlyToLat(userLat);
-      setFlyToLon(userLon);
-      setUserLocateSeq((s) => s + 1);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => { applyPosition(pos); ensureWatch(); },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
-      );
-      return;
-    }
-
-    setLocating(true);
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        applyPosition(pos);
-        setLocating(false);
-        ensureWatch();
-      },
-      (err) => {
-        if (!geolocationPermissionDenied(err)) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              applyPosition(pos);
-              setLocating(false);
-              ensureWatch();
-            },
-            async (err2) => {
-              await showLocateError(err2);
-              setLocating(false);
-            },
-            { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 20_000 }
-          );
-          return;
-        }
-        void (async () => {
-          await showLocateError(err);
-          setLocating(false);
-        })();
-      },
-      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
-    );
-  };
-
-  const locateErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showLocateError = async (err: GeolocationPositionError) => {
-    const denied = geolocationPermissionDenied(err);
-    const timedOut = geolocationTimedOut(err);
-    let message: string;
-    if (denied) {
-      const permission = await getPermissionState();
-      message =
-        permission === "denied"
-          ? "Location blocked by browser. Tap the lock icon in the address bar, enable Location, then try again."
-          : "Location permission needed. Tap Locate and choose Allow.";
-    } else if (timedOut) {
-      message =
-        "Location timed out. Check GPS/Wi‑Fi and try again.";
-    } else {
-      message = "Could not get your location. Try again.";
-    }
-    setLocateError(message);
-    if (locateErrorTimer.current) clearTimeout(locateErrorTimer.current);
-    locateErrorTimer.current = setTimeout(() => setLocateError(null), 3000);
-  };
-
-  /** On load, fly the map to the user when the browser allows (no error toast if denied). */
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-
-    const onSuccess = (pos: GeolocationPosition) => {
-      applyPosition(pos, true);
-      ensureWatch();
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      onSuccess,
-      (err) => {
-        if (!geolocationPermissionDenied(err)) {
-          navigator.geolocation.getCurrentPosition(
-            onSuccess,
-            () => {},
-            { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 20_000 }
-          );
-        }
-      },
-      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 12_000 }
-    );
-  }, []);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-
-    void (async () => {
-      const permission = await getPermissionState();
-      if (permission === "granted") ensureWatch();
-    })();
-
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
-    };
-  }, []);
 
   return (
     <div className="relative flex h-full flex-col bg-slate-950 text-slate-100">
@@ -270,8 +110,7 @@ export default function App() {
           userLon={userLon}
           onPickStop={(s) => {
             setSelected(s);
-            setFlyToLat(s.lat);
-            setFlyToLon(s.lon);
+            flyTo(s.lat, s.lon, false);
           }}
         />
         <TransitMap
@@ -322,7 +161,7 @@ export default function App() {
             <p className="min-w-0 flex-1 leading-snug">{locateError}</p>
             <button
               type="button"
-              onClick={() => setLocateError(null)}
+              onClick={clearLocateError}
               className="shrink-0 rounded px-1.5 py-0.5 text-amber-300/90 hover:bg-amber-900 hover:text-amber-50"
               aria-label="Dismiss location message"
             >

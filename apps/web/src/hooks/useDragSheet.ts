@@ -11,16 +11,17 @@ export function expandedHeightPx(): number {
   return Math.round(window.innerHeight * EXPANDED_VH);
 }
 
-function previewRestY(previewH: number): number {
-  return expandedHeightPx() - previewH;
+/** Resting Y of the sheet in preview mode (preview height is fixed). */
+function previewRestY(): number {
+  return expandedHeightPx() - PREVIEW_HEIGHT_PX;
 }
 
-function releaseSwitchY(previewH: number): number {
-  return previewRestY(previewH) / 2;
+function releaseSwitchY(): number {
+  return previewRestY() / 2;
 }
 
-function previewCloseY(previewH: number): number {
-  return Math.min(expandedHeightPx(), previewRestY(previewH) + 88);
+function previewCloseY(): number {
+  return Math.min(expandedHeightPx(), previewRestY() + 88);
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -53,10 +54,7 @@ export function useDragSheet(params: {
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [closing, setClosing] = useState(false);
-
-  const ph = () => PREVIEW_HEIGHT_PX;
-
-  const [translateY, setTranslateY] = useState(() => previewRestY(PREVIEW_HEIGHT_PX));
+  const [translateY, setTranslateY] = useState(() => previewRestY());
 
   useEffect(() => {
     onPreviewHeightChange?.(PREVIEW_HEIGHT_PX);
@@ -97,6 +95,20 @@ export function useDragSheet(params: {
   const [closingStopSnapshot, setClosingStopSnapshot] = useState<StopSummary | null>(null);
   const stopForDisplay = closingStopSnapshot ?? stop;
 
+  /** Animate to a rest position on the next frame (after the current paint). */
+  const settleTo = useCallback((y: number) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setTranslateY(y));
+    });
+  }, []);
+
+  /** Expanded -> preview, keeping the slide animation. */
+  const collapseToPreview = useCallback(() => {
+    expandedRef.current = false;
+    setExpanded(false);
+    settleTo(previewRestY());
+  }, [settleTo]);
+
   const cancelClose = useCallback(() => {
     if (closeTimerRef.current !== null) {
       clearTimeout(closeTimerRef.current);
@@ -131,23 +143,15 @@ export function useDragSheet(params: {
     cancelClose();
     setExpanded(false);
     expandedRef.current = false;
-    setTranslateY(previewRestY(ph()));
+    setTranslateY(previewRestY());
     setDragging(false);
     outsideDownRef.current = null;
   }, [stopId, cancelClose]);
 
   useEffect(() => {
     if (!collapseSeq || !open) return;
-    if (expandedRef.current) {
-      expandedRef.current = false;
-      setExpanded(false);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTranslateY(previewRestY(ph()));
-        });
-      });
-    }
-  }, [collapseSeq, open]);
+    if (expandedRef.current) collapseToPreview();
+  }, [collapseSeq, open, collapseToPreview]);
 
   // Outside tap: expanded -> preview, preview -> close.
   // Only fires on clean taps (no drag/scroll/zoom).
@@ -193,13 +197,7 @@ export function useDragSheet(params: {
       const dy = e.clientY - start.y;
       if (dx * dx + dy * dy > 10 * 10) return;
       if (expandedRef.current) {
-        expandedRef.current = false;
-        setExpanded(false);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setTranslateY(previewRestY(ph()));
-          });
-        });
+        collapseToPreview();
       } else {
         animateClose();
       }
@@ -210,7 +208,7 @@ export function useDragSheet(params: {
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("pointerup", onUp);
     };
-  }, [open, onOpenChange, animateClose]);
+  }, [open, collapseToPreview, animateClose]);
 
   // --- Drag helpers ---
   const beginDrag = (clientY: number, timeStamp: number, pointerId: number, el: Element | null, skipDragState = false) => {
@@ -233,7 +231,7 @@ export function useDragSheet(params: {
     // overflow/touch-action CSS mid-gesture causes the browser to steal the
     // touch for native scrolling, killing our document listeners.
     if (!chipsDragActive.current) {
-      const switchY = previewRestY(ph());
+      const switchY = previewRestY();
       const shouldExpand = clamped < switchY;
       if (shouldExpand !== expandedRef.current) {
         expandedRef.current = shouldExpand;
@@ -256,14 +254,18 @@ export function useDragSheet(params: {
 
     const finalTranslate = dragBaseTranslateRef.current + (clientY - dragStartYRef.current);
     const clamped = Math.max(-40, Math.min(expandedHeightPx(), finalTranslate));
-    const startedFromPreview = dragBaseTranslateRef.current >= previewRestY(ph()) - 1;
+    const startedFromPreview = dragBaseTranslateRef.current >= previewRestY() - 1;
 
-    // Velocity-based close: fast flick down from preview closes the panel
-    if (startedFromPreview && velocity > CLOSE_VELOCITY_THRESHOLD) {
+    const closeFrom = () => {
       pointerHistoryRef.current = [];
       pointerIdRef.current = null;
       setTranslateY(clamped);
       animateClose();
+    };
+
+    // Velocity-based close: fast flick down from preview closes the panel
+    if (startedFromPreview && velocity > CLOSE_VELOCITY_THRESHOLD) {
+      closeFrom();
       return;
     }
 
@@ -273,15 +275,12 @@ export function useDragSheet(params: {
     } else if (velocity < -VELOCITY_THRESHOLD) {
       targetExpanded = true;
     } else {
-      targetExpanded = clamped < releaseSwitchY(ph());
+      targetExpanded = clamped < releaseSwitchY();
     }
 
     // Position-based close: released well below preview rest
-    if (!targetExpanded && startedFromPreview && clamped >= previewCloseY(ph())) {
-      pointerHistoryRef.current = [];
-      pointerIdRef.current = null;
-      setTranslateY(clamped);
-      animateClose();
+    if (!targetExpanded && startedFromPreview && clamped >= previewCloseY()) {
+      closeFrom();
       return;
     }
 
@@ -295,12 +294,7 @@ export function useDragSheet(params: {
     setTranslateY(clamped);
     setDragging(false);
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const restY = targetExpanded ? 0 : previewRestY(ph());
-        setTranslateY(restY);
-      });
-    });
+    settleTo(targetExpanded ? 0 : previewRestY());
   };
 
   // --- Handle / overlay pointer handlers ---
@@ -333,7 +327,7 @@ export function useDragSheet(params: {
     scrollTakeover.current = false;
     draggingRef.current = false;
     setDragging(false);
-    setTranslateY(expandedRef.current ? 0 : previewRestY(ph()));
+    setTranslateY(expandedRef.current ? 0 : previewRestY());
   };
 
   // --- Scroll-area: expanded only — overscroll at top/bottom pulls the sheet. Preview uses chip strip + handle; leaving these on in preview confuses the next tap after expand/collapse (stale gestures, preventDefault vs click). ---
@@ -425,7 +419,7 @@ export function useDragSheet(params: {
     expandedRef.current = false;
     setExpanded(false);
     beginDrag(g.startY, timeStamp, g.pointerId, null, true);
-    dragBaseTranslateRef.current = previewRestY(ph());
+    dragBaseTranslateRef.current = previewRestY();
     applyDrag(clientY, timeStamp);
 
     const onDocMove = (ev: TouchEvent) => {

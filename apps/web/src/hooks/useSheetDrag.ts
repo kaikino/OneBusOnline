@@ -15,6 +15,16 @@ interface Gesture {
   samples: { y: number; time: number }[];
 }
 
+/** Velocity is in px/ms, positive downward. Offsets are px below the expanded position. */
+function snapFor(gesture: Gesture, offset: number, velocity: number): SheetSnap {
+  const fromPreview = gesture.startOffset === gesture.previewOffset;
+  const pastCloseDistance = offset > gesture.previewOffset + CLOSE_DISTANCE_PX;
+  if (velocity < -FLICK_VELOCITY) return "expanded";
+  if (fromPreview && (velocity > CLOSE_VELOCITY || pastCloseDistance)) return "closed";
+  if (velocity > FLICK_VELOCITY) return "preview";
+  return offset < gesture.previewOffset / 2 ? "expanded" : "preview";
+}
+
 /**
  * Vertical drag for a bottom sheet that rests either expanded or as a preview
  * strip `previewHeight` px tall (plus the sheet's bottom padding).
@@ -29,7 +39,6 @@ export function useSheetDrag(options: {
   const gesture = useRef<Gesture | null>(null);
   const [drag, setDrag] = useState<{ offset: number; raised: boolean } | null>(null);
 
-  /** Px below the expanded position. */
   const offsetAt = (g: Gesture, clientY: number) =>
     Math.min(g.maxOffset, Math.max(0, g.startOffset + clientY - g.startY));
 
@@ -65,17 +74,10 @@ export function useSheetDrag(options: {
     if (!g) return;
     gesture.current = null;
     setDrag(null);
-
     const oldest = g.samples[0];
     const elapsed = e.timeStamp - oldest.time;
     const velocity = elapsed > 0 ? (e.clientY - oldest.y) / elapsed : 0;
-    const offset = offsetAt(g, e.clientY);
-    const fromPreview = g.startOffset === g.previewOffset;
-    const pastCloseDistance = offset > g.previewOffset + CLOSE_DISTANCE_PX;
-    if (velocity < -FLICK_VELOCITY) onSnap("expanded");
-    else if (fromPreview && (velocity > CLOSE_VELOCITY || pastCloseDistance)) onSnap("closed");
-    else if (velocity > FLICK_VELOCITY) onSnap("preview");
-    else onSnap(offset < g.previewOffset / 2 ? "expanded" : "preview");
+    onSnap(snapFor(g, offsetAt(g, e.clientY), velocity));
   };
 
   const onPointerCancel = () => {

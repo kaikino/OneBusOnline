@@ -21,8 +21,10 @@ function restingTransform(open: boolean, expanded: boolean): string {
 
 export function BottomSheet({ open, expanded, onSnap, header, children }: Props) {
   const sheetRef = useRef<HTMLElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const { dragOffset, raised, handlers } = useSheetDrag({
     sheetRef,
+    scrollerRef,
     expanded,
     previewHeight: SHEET_PREVIEW_HEIGHT,
     onSnap,
@@ -36,15 +38,18 @@ export function BottomSheet({ open, expanded, onSnap, header, children }: Props)
       style={{
         transform: dragging ? `translateY(${dragOffset}px)` : restingTransform(open, expanded),
       }}
-      className={`fixed inset-x-0 bottom-0 z-[2001] flex h-[74dvh] flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] ${
+      className={`fixed inset-x-0 bottom-0 z-[2001] flex h-[74dvh] select-none flex-col rounded-t-2xl border border-slate-700 bg-slate-950 px-4 pb-[env(safe-area-inset-bottom,0px)] ${
         dragging ? "" : "transition-transform duration-500 ease-out"
       }`}
+      {...handlers}
     >
-      <div className="cursor-grab touch-none select-none pt-3" {...handlers}>
+      <div className="cursor-grab touch-none pt-3">
         <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-600" />
         {header}
       </div>
-      {children(raised)}
+      <div ref={scrollerRef} className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+        {children(raised)}
+      </div>
     </section>
   );
 }

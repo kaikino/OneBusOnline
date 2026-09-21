@@ -1,14 +1,20 @@
-import { type PointerEvent, type RefObject, useRef, useState } from "react";
+import { type PointerEvent, type RefObject, useEffect, useRef, useState } from "react";
 
 export type SheetSnap = "expanded" | "preview" | "closed";
 
+const DRAG_SLOP_PX = 6;
 const FLICK_VELOCITY = 0.4;
 const CLOSE_VELOCITY = 0.6;
 const CLOSE_DISTANCE_PX = 88;
 const VELOCITY_WINDOW_MS = 100;
 
 interface Gesture {
+  pointerId: number;
+  startX: number;
   startY: number;
+  startedInScroller: boolean;
+  /** False until the pointer has moved far enough, vertically, to count as a drag. */
+  dragging: boolean;
   startOffset: number;
   previewOffset: number;
   maxOffset: number;
@@ -27,42 +33,79 @@ function snapFor(gesture: Gesture, offset: number, velocity: number): SheetSnap 
 
 /**
  * Vertical drag for a bottom sheet that rests either expanded or as a preview
- * strip `previewHeight` px tall (plus the sheet's bottom padding).
+ * strip `previewHeight` px tall (plus the sheet's bottom padding). A drag can
+ * start anywhere on the sheet; inside `scrollerRef` it only takes over when the
+ * content can't scroll any further in the direction of the pull.
  */
 export function useSheetDrag(options: {
   sheetRef: RefObject<HTMLElement | null>;
+  scrollerRef: RefObject<HTMLElement | null>;
   expanded: boolean;
   previewHeight: number;
   onSnap: (snap: SheetSnap) => void;
 }) {
-  const { sheetRef, expanded, previewHeight, onSnap } = options;
+  const { sheetRef, scrollerRef, expanded, previewHeight, onSnap } = options;
   const gesture = useRef<Gesture | null>(null);
   const [drag, setDrag] = useState<{ offset: number; raised: boolean } | null>(null);
+
+  // Touch browsers scroll unless the touchmove itself is cancelled.
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const blockScroll = (e: TouchEvent) => {
+      if (gesture.current?.dragging && e.cancelable) e.preventDefault();
+    };
+    sheet.addEventListener("touchmove", blockScroll, { passive: false });
+    return () => sheet.removeEventListener("touchmove", blockScroll);
+  }, [sheetRef]);
 
   const offsetAt = (g: Gesture, clientY: number) =>
     Math.min(g.maxOffset, Math.max(0, g.startOffset + clientY - g.startY));
 
+  const canScrollNatively = (g: Gesture, deltaY: number) => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !g.startedInScroller) return false;
+    return deltaY > 0
+      ? scroller.scrollTop > 0
+      : scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1;
+  };
+
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     const sheet = sheetRef.current;
-    if (!sheet || (e.target as Element).closest("button")) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (!sheet || gesture.current || e.button !== 0) return;
 
     const bottomPadding = parseFloat(getComputedStyle(sheet).paddingBottom);
     const previewOffset = sheet.offsetHeight - previewHeight - bottomPadding;
-    const startOffset = expanded ? 0 : previewOffset;
     gesture.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
       startY: e.clientY,
-      startOffset,
+      startedInScroller: scrollerRef.current?.contains(e.target as Node) ?? false,
+      dragging: false,
+      startOffset: expanded ? 0 : previewOffset,
       previewOffset,
       maxOffset: sheet.offsetHeight,
-      samples: [{ y: e.clientY, time: e.timeStamp }],
+      samples: [],
     };
-    setDrag({ offset: startOffset, raised: expanded });
   };
 
   const onPointerMove = (e: PointerEvent<HTMLElement>) => {
     const g = gesture.current;
-    if (!g) return;
+    if (!g || e.pointerId !== g.pointerId) return;
+
+    if (!g.dragging) {
+      const deltaX = e.clientX - g.startX;
+      const deltaY = e.clientY - g.startY;
+      if (Math.hypot(deltaX, deltaY) < DRAG_SLOP_PX) return;
+      if (Math.abs(deltaX) > Math.abs(deltaY) || canScrollNatively(g, deltaY)) {
+        gesture.current = null;
+        return;
+      }
+      g.dragging = true;
+      g.startY = e.clientY;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+
     g.samples.push({ y: e.clientY, time: e.timeStamp });
     while (e.timeStamp - g.samples[0].time > VELOCITY_WINDOW_MS) g.samples.shift();
     const offset = offsetAt(g, e.clientY);
@@ -71,8 +114,10 @@ export function useSheetDrag(options: {
 
   const onPointerUp = (e: PointerEvent<HTMLElement>) => {
     const g = gesture.current;
-    if (!g) return;
+    if (!g || e.pointerId !== g.pointerId) return;
     gesture.current = null;
+    if (!g.dragging) return;
+
     setDrag(null);
     const oldest = g.samples[0];
     const elapsed = e.timeStamp - oldest.time;

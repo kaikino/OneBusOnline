@@ -97,7 +97,7 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
   return (
     <BottomSheet open={stop !== null} expanded={expanded} onSnap={onSnap} header={header}>
       {(raised) => (
-        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+        <>
           {notice && <p className="mb-2 text-sm text-slate-400">{notice}</p>}
           {raised ? (
             <>
@@ -134,13 +134,13 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
               </button>
             </>
           ) : (
-            <div className="scrollbar-none flex gap-2 overflow-x-auto">
+            <div className="scrollbar-none flex touch-pan-x gap-2 overflow-x-auto">
               {nextPerRoute(arrivals, now).map((arrival) => (
                 <ArrivalChip key={routeKey(arrival)} {...toggleProps(arrival)} />
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
     </BottomSheet>
   );

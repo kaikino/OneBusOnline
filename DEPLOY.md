@@ -17,6 +17,7 @@ The repo deploys as a single Vercel project:
 | `ONEBUSAWAY_API_KEY` | Yes         | OneBusAway application key.                                      |
 | `OBA_BASE_URL`       | Recommended | Regional API host, e.g. `https://api.pugetsound.onebusaway.org`. |
 | `REDIS_URL`          | Recommended | Redis connection string. Without it every request hits OBA.      |
+| `VITE_CARTO_API_KEY` | Recommended | CARTO Basemaps key, read at build time. Without it map tiles are watermarked. |
 
 ## Any Node host
 

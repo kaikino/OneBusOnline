@@ -11,8 +11,11 @@ import { SmoothWheelZoom } from "./map/SmoothWheelZoom";
 import { StopMarkers } from "./map/StopMarkers";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
-const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-
+// Without a key CARTO still serves tiles, but watermarked.
+const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY;
+const TILE_URL = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${
+  CARTO_KEY ? `?key=${CARTO_KEY}` : ""
+}`;
 /** Smooth zooming moves the map every frame; stops are only recomputed once it rests. */
 const VIEWPORT_SETTLE_MS = 100;
 

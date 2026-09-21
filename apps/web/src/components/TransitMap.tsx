@@ -16,9 +16,6 @@ const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY;
 const TILE_URL = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${
   CARTO_KEY ? `?key=${CARTO_KEY}` : ""
 }`;
-/** Smooth zooming moves the map every frame; stops are only recomputed once it rests. */
-const VIEWPORT_SETTLE_MS = 100;
-
 const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>';
 
@@ -41,24 +38,15 @@ function MapEvents(props: {
     });
   };
 
-  const settleTimer = useRef<number>(undefined);
-  const scheduleReport = () => {
-    clearTimeout(settleTimer.current);
-    settleTimer.current = window.setTimeout(reportViewport, VIEWPORT_SETTLE_MS);
-  };
-
   const map = useMapEvents({
-    moveend: scheduleReport,
+    moveend: reportViewport,
     popupopen: () => (popupOpen.current = true),
     popupclose: () => (popupOpen.current = false),
     // A tap on the map dismisses an open popup first, and only then reaches the app.
     click: () => (popupOpen.current ? map.closePopup() : props.onBackgroundClick()),
   });
 
-  useEffect(() => {
-    reportViewport();
-    return () => clearTimeout(settleTimer.current);
-  }, [map]);
+  useEffect(reportViewport, [map]);
 
   return null;
 }

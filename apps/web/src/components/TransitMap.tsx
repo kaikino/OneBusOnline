@@ -7,10 +7,15 @@ import { USER_ICON } from "../lib/mapIcons";
 import type { RouteFilter } from "../lib/routeFilter";
 import { RouteLine } from "./map/RouteLine";
 import { RouteVehicles } from "./map/RouteVehicles";
+import { SmoothWheelZoom } from "./map/SmoothWheelZoom";
 import { StopMarkers } from "./map/StopMarkers";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
 const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+
+/** Smooth zooming moves the map every frame; stops are only recomputed once it rests. */
+const VIEWPORT_SETTLE_MS = 100;
+
 const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions/">CARTO</a>';
 
@@ -33,15 +38,24 @@ function MapEvents(props: {
     });
   };
 
+  const settleTimer = useRef<number>(undefined);
+  const scheduleReport = () => {
+    clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(reportViewport, VIEWPORT_SETTLE_MS);
+  };
+
   const map = useMapEvents({
-    moveend: reportViewport,
+    moveend: scheduleReport,
     popupopen: () => (popupOpen.current = true),
     popupclose: () => (popupOpen.current = false),
     // A tap on the map dismisses an open popup first, and only then reaches the app.
     click: () => (popupOpen.current ? map.closePopup() : props.onBackgroundClick()),
   });
 
-  useEffect(reportViewport, [map]);
+  useEffect(() => {
+    reportViewport();
+    return () => clearTimeout(settleTimer.current);
+  }, [map]);
 
   return null;
 }
@@ -73,8 +87,8 @@ export function TransitMap({
       zoom={13}
       minZoom={3}
       maxZoom={19}
-      zoomSnap={0.5}
-      wheelPxPerZoomLevel={120}
+      zoomSnap={0}
+      scrollWheelZoom={false}
       maxBounds={[
         [-85, -180],
         [85, 180],
@@ -86,6 +100,7 @@ export function TransitMap({
     >
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
+      <SmoothWheelZoom />
       <MapEvents onViewportChange={setViewport} onBackgroundClick={onBackgroundClick} />
       {routeFilter && (
         <>

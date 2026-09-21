@@ -10,7 +10,7 @@ import {
 } from "@onebus/shared";
 import OnebusawaySDK, { NotFoundError } from "onebusaway-sdk";
 import { cached } from "./cache.js";
-import { byDistanceFrom, toArrival, toRouteShape, toStop, toVehicles } from "./normalize.js";
+import { byDistanceFrom, toArrivals, toRouteShape, toStop, toVehicles } from "./normalize.js";
 
 const TTL_SEC = { stops: 600, arrivals: 25, vehicles: 15, routeShape: 86_400 };
 
@@ -114,10 +114,7 @@ export function arrivalsForStop(
       minutesAfter,
       minutesBefore,
     });
-    const arrivals = data.entry.arrivalsAndDepartures
-      .map(toArrival)
-      .sort((a, b) => a.arrivalTimeMs - b.arrivalTimeMs);
-    return { stopId, arrivals };
+    return { stopId, arrivals: toArrivals(data.entry.arrivalsAndDepartures) };
   });
 }
 

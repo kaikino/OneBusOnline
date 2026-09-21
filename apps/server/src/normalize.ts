@@ -38,7 +38,7 @@ function punctuality(predicted: boolean, deviationSec: number): Punctuality {
   return "on_time";
 }
 
-export function toArrival(arrival: ObaArrival): Arrival {
+function toArrival(arrival: ObaArrival): Arrival {
   const predicted = Boolean(arrival.predicted) && arrival.predictedArrivalTime > 0;
   const arrivalTimeMs = predicted ? arrival.predictedArrivalTime : arrival.scheduledArrivalTime;
   const deviationSec = Math.round((arrivalTimeMs - arrival.scheduledArrivalTime) / 1000);
@@ -52,6 +52,19 @@ export function toArrival(arrival: ObaArrival): Arrival {
     punctuality: punctuality(predicted, deviationSec),
     deviationSec,
   };
+}
+
+/** OBA occasionally reports one trip under two vehicles; the most recently updated report wins. */
+export function toArrivals(reports: ObaArrival[]): Arrival[] {
+  const latest = new Map<string, ObaArrival>();
+  for (const report of reports) {
+    const key = `${report.tripId}:${report.scheduledArrivalTime}`;
+    const known = latest.get(key);
+    if (!known || (report.lastUpdateTime ?? 0) > (known.lastUpdateTime ?? 0)) {
+      latest.set(key, report);
+    }
+  }
+  return [...latest.values()].map(toArrival).sort((a, b) => a.arrivalTimeMs - b.arrivalTimeMs);
 }
 
 export function toRouteShape(routeId: string, entry: ObaRouteEntry): RouteShape {

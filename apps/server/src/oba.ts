@@ -17,6 +17,8 @@ const TTL_SEC = { stops: 600, arrivals: 25, vehicles: 15, routeShape: 86_400 };
 /** OBA caps each stop query, so crowded boxes are split into quadrants, up to this many calls. */
 const MAX_CALLS_PER_BBOX = 36;
 const MIN_SPLIT_SPAN_DEG = 2e-4;
+/** OBA drops stops lying right on the edge of the queried box, so a little more is requested. */
+const QUERY_MARGIN_DEG = 1e-4;
 
 const SEARCH_MAX_RESULTS = 30;
 const SEARCH_RADIUS_M = 50_000;
@@ -53,8 +55,8 @@ async function fetchStops(bbox: Bbox, budget: { callsLeft: number }): Promise<St
   const { data } = await client.stopsForLocation.list({
     lat: midLat,
     lon: midLon,
-    latSpan,
-    lonSpan,
+    latSpan: latSpan + QUERY_MARGIN_DEG,
+    lonSpan: lonSpan + QUERY_MARGIN_DEG,
   });
 
   const canSplit = Math.min(latSpan, lonSpan) > MIN_SPLIT_SPAN_DEG && budget.callsLeft > 0;

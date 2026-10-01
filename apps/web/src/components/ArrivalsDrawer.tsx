@@ -34,12 +34,13 @@ function nextPerRoute(arrivals: Arrival[], now: number): Arrival[] {
 export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFilterChange }: Props) {
   const now = useNow(5000);
   const online = useOnline();
-  const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
-    useArrivals(stop?.id);
 
-  // Keeps the stop on screen while the sheet slides closed.
+  // Keeps the stop and its arrivals on screen while the sheet slides closed.
   const [shownStop, setShownStop] = useState(stop);
   if (stop && stop !== shownStop) setShownStop(stop);
+
+  const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
+    useArrivals(shownStop?.id, stop !== null);
 
   const listed = routeFilter
     ? arrivals.filter((arrival) => matchesRoute(routeFilter, arrival))

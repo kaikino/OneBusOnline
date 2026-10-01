@@ -26,8 +26,11 @@ function save(response: ArrivalsResponse) {
   }
 }
 
-/** Live arrivals for a stop, falling back to the last saved response when the network fails. */
-export function useArrivals(stopId: string | undefined) {
+/**
+ * Live arrivals for a stop, falling back to the last saved response when the
+ * network fails. While not `live`, the last arrivals are kept but not refreshed.
+ */
+export function useArrivals(stopId: string | undefined, live: boolean) {
   const [minutesAfter, setMinutesAfter] = useState(MINUTES_AFTER);
 
   const [windowStopId, setWindowStopId] = useState(stopId);
@@ -39,7 +42,7 @@ export function useArrivals(stopId: string | undefined) {
   const query = useQuery({
     queryKey: ["arrivals", stopId, minutesAfter],
     queryFn: () => fetchArrivals(stopId!, minutesAfter, MINUTES_BEFORE),
-    enabled: stopId !== undefined,
+    enabled: stopId !== undefined && live,
     staleTime: 15_000,
     refetchInterval: 20_000,
     // Keeps the list in place while a longer window loads.

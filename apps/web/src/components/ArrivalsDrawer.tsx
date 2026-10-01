@@ -113,6 +113,9 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
                   </button>
                 </div>
               )}
+              {listed.length === 0 && arrivals.length > 0 && (
+                <p className="mb-2 text-sm text-slate-400">No upcoming arrivals for this route.</p>
+              )}
               <ul className="space-y-2">
                 {listed.map((arrival) => (
                   <ArrivalRow

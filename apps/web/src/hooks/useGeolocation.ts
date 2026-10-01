@@ -58,24 +58,15 @@ export function useGeolocation(onLocated: (position: LatLon) => void) {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string>();
 
-  const request = useCallback(
-    async (reportErrors: boolean) => {
-      setLocating(true);
-      try {
-        const found = toLatLon(await getBestPosition());
-        setPosition(found);
-        onLocated(found);
-      } catch (err) {
-        if (reportErrors) setError(errorMessage(err as GeolocationPositionError));
-      } finally {
-        setLocating(false);
-      }
-    },
-    [onLocated],
-  );
+  const request = useCallback(async () => {
+    const found = toLatLon(await getBestPosition());
+    setPosition(found);
+    onLocated(found);
+  }, [onLocated]);
 
+  // On load the request is silent: no spinner, and a refusal is not an error worth showing.
   useEffect(() => {
-    void request(false);
+    request().catch(() => {});
   }, [request]);
 
   const tracking = position !== undefined;
@@ -95,10 +86,17 @@ export function useGeolocation(onLocated: (position: LatLon) => void) {
     return () => clearTimeout(id);
   }, [error]);
 
-  const locate = () => {
+  const locate = async () => {
     setError(undefined);
-    if (position) onLocated(position);
-    else void request(true);
+    if (position) return onLocated(position);
+    setLocating(true);
+    try {
+      await request();
+    } catch (err) {
+      setError(errorMessage(err as GeolocationPositionError));
+    } finally {
+      setLocating(false);
+    }
   };
 
   return { position, locating, error, locate };

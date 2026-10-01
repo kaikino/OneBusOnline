@@ -73,7 +73,7 @@ export default function App() {
         <button
           type="button"
           onClick={() => {
-            geolocation.locate();
+            void geolocation.locate();
             setDrawerExpanded(false);
           }}
           disabled={geolocation.locating}

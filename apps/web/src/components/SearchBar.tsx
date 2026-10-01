@@ -18,15 +18,18 @@ function stopDetails(stop: Stop): string {
 
 export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => void }) {
   const [open, setOpen] = useState(false);
+  // Fixed while the search is open, so position updates don't restart it.
+  const [origin, setOrigin] = useState<LatLon>();
   const [input, setInput] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const query = useDebounced(input.trim(), DEBOUNCE_MS);
-  const searching = query.length >= MIN_QUERY_LENGTH;
+  // The debounced query lags the input, so an emptied box is checked as well.
+  const searching = query.length >= MIN_QUERY_LENGTH && input.trim().length >= MIN_QUERY_LENGTH;
 
   const search = useQuery({
-    queryKey: ["stopSearch", query, props.origin],
-    queryFn: () => searchStops(query, props.origin),
+    queryKey: ["stopSearch", query, origin],
+    queryFn: () => searchStops(query, origin),
     enabled: searching,
     staleTime: 5 * 60_000,
   });
@@ -49,7 +52,10 @@ export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => 
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOrigin(props.origin);
+          setOpen(true);
+        }}
         aria-label="Search stops"
         className="absolute left-3 top-3 z-[1000] rounded-full border border-slate-500 bg-slate-900/95 p-2.5 text-slate-100 shadow-lg backdrop-blur-sm transition hover:bg-slate-800"
       >

@@ -9,6 +9,12 @@ body,
   margin: 0;
 }
 
+/* The app is one fixed screen: no pull-to-refresh, rubber-banding or double-tap zoom. */
+html {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
 .leaflet-container {
   font-family: inherit;
   /* Matches the basemap's land color so unloaded tiles don't flash grey. */

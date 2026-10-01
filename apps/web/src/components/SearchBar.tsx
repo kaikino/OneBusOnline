@@ -70,7 +70,8 @@ export function SearchBar(props: { origin?: LatLon; onPickStop: (stop: Stop) => 
         <Search className="ml-3 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
         <input
           autoFocus
-          className="min-w-0 flex-1 bg-transparent px-2 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+          // iOS zooms the page when an input smaller than 16px is focused.
+          className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-500"
           placeholder="Search stops…"
           aria-label="Search stops"
           value={input}

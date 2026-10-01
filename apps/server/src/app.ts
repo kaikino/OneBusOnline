@@ -1,5 +1,6 @@
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
+import { APIError, NotFoundError } from "onebusaway-sdk";
 import { ZodError } from "zod";
 import { obaConfigured } from "./oba.js";
 import { routes } from "./routes.js";
@@ -18,8 +19,16 @@ const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(400).json({ error: err.flatten() });
     return;
   }
+  if (err instanceof NotFoundError) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
   console.error(err);
-  res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  if (err instanceof APIError) {
+    res.status(502).json({ error: "OneBusAway request failed" });
+    return;
+  }
+  res.status(500).json({ error: "Internal server error" });
 };
 
 const app = express();

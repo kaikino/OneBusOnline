@@ -56,7 +56,7 @@ export function useArrivals(stopId: string | undefined) {
     arrivals: (query.data ?? saved)?.arrivals ?? [],
     isLoading: query.isPending,
     isFetching: query.isFetching,
-    isFailing: query.failureCount > 0,
+    isFailing: query.isError || query.isRefetchError,
     minutesAfter,
     refresh: () => void query.refetch(),
     extend: () => setMinutesAfter((minutes) => minutes + EXTEND_STEP_MINUTES),

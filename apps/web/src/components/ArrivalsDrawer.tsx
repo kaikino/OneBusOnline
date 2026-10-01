@@ -60,13 +60,12 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
 
   let notice: string | null = null;
   if (arrivals.length > 0) {
-    if (isFailing) {
-      notice = online
-        ? "Server unreachable — arrivals may be outdated."
-        : "Offline — showing last saved arrivals for this stop.";
-    }
+    if (!online) notice = "Offline — showing last saved arrivals for this stop.";
+    else if (isFailing) notice = "Server unreachable — arrivals may be outdated.";
+  } else if (!online) {
+    notice = "You are offline with no saved arrivals.";
   } else if (isFailing) {
-    notice = online ? "Failed to fetch arrivals." : "You are offline with no saved arrivals.";
+    notice = "Failed to fetch arrivals.";
   } else {
     notice = isLoading ? "Loading…" : "No upcoming arrivals.";
   }

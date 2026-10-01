@@ -11,6 +11,8 @@ import { SmoothZoom } from "./map/SmoothZoom";
 import { StopMarkers } from "./map/StopMarkers";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 19;
 // Without a key CARTO still serves tiles, but watermarked.
 const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY;
 const TILE_URL = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${
@@ -76,8 +78,8 @@ export function TransitMap({
       ref={ref}
       center={SEATTLE}
       zoom={13}
-      minZoom={3}
-      maxZoom={19}
+      minZoom={MIN_ZOOM}
+      maxZoom={MAX_ZOOM}
       zoomSnap={0}
       bounceAtZoomLimits={false}
       scrollWheelZoom={false}
@@ -91,7 +93,7 @@ export function TransitMap({
       className="h-full w-full"
     >
       <ZoomControl position="topright" />
-      <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
+      <TileLayer attribution={ATTRIBUTION} url={TILE_URL} maxZoom={MAX_ZOOM} keepBuffer={6} />
       <SmoothZoom />
       <MapEvents onViewportChange={setViewport} onBackgroundClick={onBackgroundClick} />
       {routeFilter && (

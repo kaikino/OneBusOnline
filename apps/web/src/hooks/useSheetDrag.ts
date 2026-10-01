@@ -1,4 +1,10 @@
-import { type PointerEvent, type RefObject, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 export type SheetSnap = "expanded" | "preview" | "closed";
 
@@ -70,64 +76,76 @@ export function useSheetDrag(options: {
       : scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1;
   };
 
-  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+  const onPointerDown = (down: ReactPointerEvent<HTMLElement>) => {
     const sheet = sheetRef.current;
-    if (!sheet || gesture.current || e.button !== 0) return;
+    if (!sheet || gesture.current || down.button !== 0) return;
 
     const bottomPadding = parseFloat(getComputedStyle(sheet).paddingBottom);
     const previewOffset = sheet.offsetHeight - previewHeight - bottomPadding;
-    gesture.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startedInScroller: scrollerRef.current?.contains(e.target as Node) ?? false,
+    const g: Gesture = {
+      pointerId: down.pointerId,
+      startX: down.clientX,
+      startY: down.clientY,
+      startedInScroller: scrollerRef.current?.contains(down.target as Node) ?? false,
       dragging: false,
       startOffset: expanded ? 0 : previewOffset,
       previewOffset,
       maxOffset: sheet.offsetHeight,
       samples: [],
     };
-  };
+    gesture.current = g;
 
-  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
-    const g = gesture.current;
-    if (!g || e.pointerId !== g.pointerId) return;
+    // The pointer is followed on the window: it can leave the sheet before the drag is recognised.
+    const stopFollowing = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      gesture.current = null;
+    };
 
-    if (!g.dragging) {
-      const deltaX = e.clientX - g.startX;
-      const deltaY = e.clientY - g.startY;
-      if (Math.hypot(deltaX, deltaY) < DRAG_SLOP_PX) return;
-      if (Math.abs(deltaX) > Math.abs(deltaY) || canScrollNatively(g, deltaY)) {
-        gesture.current = null;
-        return;
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId !== g.pointerId) return;
+
+      if (!g.dragging) {
+        const deltaX = e.clientX - g.startX;
+        const deltaY = e.clientY - g.startY;
+        if (Math.hypot(deltaX, deltaY) < DRAG_SLOP_PX) return;
+        if (Math.abs(deltaX) > Math.abs(deltaY) || canScrollNatively(g, deltaY)) {
+          stopFollowing();
+          return;
+        }
+        g.dragging = true;
+        // Capturing also keeps the release from clicking whatever the drag started on.
+        sheet.setPointerCapture(g.pointerId);
       }
-      g.dragging = true;
-      g.startY = e.clientY;
-      e.currentTarget.setPointerCapture(e.pointerId);
-    }
 
-    g.samples.push({ y: e.clientY, time: e.timeStamp });
-    while (e.timeStamp - g.samples[0].time > VELOCITY_WINDOW_MS) g.samples.shift();
-    const offset = offsetAt(g, e.clientY);
-    setDrag({ offset, raised: offset < g.previewOffset });
-  };
+      g.samples.push({ y: e.clientY, time: e.timeStamp });
+      while (e.timeStamp - g.samples[0].time > VELOCITY_WINDOW_MS) g.samples.shift();
+      const offset = offsetAt(g, e.clientY);
+      setDrag({ offset, raised: offset < g.previewOffset });
+    };
 
-  const onPointerUp = (e: PointerEvent<HTMLElement>) => {
-    const g = gesture.current;
-    if (!g || e.pointerId !== g.pointerId) return;
-    gesture.current = null;
-    if (!g.dragging) return;
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== g.pointerId) return;
+      stopFollowing();
+      if (!g.dragging) return;
 
-    setDrag(null);
-    const oldest = g.samples[0];
-    const elapsed = e.timeStamp - oldest.time;
-    const velocity = elapsed > 0 ? (e.clientY - oldest.y) / elapsed : 0;
-    onSnap(snapFor(g, offsetAt(g, e.clientY), velocity));
-  };
+      setDrag(null);
+      const oldest = g.samples[0];
+      const elapsed = e.timeStamp - oldest.time;
+      const velocity = elapsed > 0 ? (e.clientY - oldest.y) / elapsed : 0;
+      onSnap(snapFor(g, offsetAt(g, e.clientY), velocity));
+    };
 
-  const onPointerCancel = () => {
-    gesture.current = null;
-    setDrag(null);
+    const onCancel = (e: PointerEvent) => {
+      if (e.pointerId !== g.pointerId) return;
+      stopFollowing();
+      setDrag(null);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   };
 
   return {
@@ -135,6 +153,6 @@ export function useSheetDrag(options: {
     dragOffset: drag?.offset,
     /** Whether the sheet currently shows more than its preview strip. */
     raised: drag?.raised ?? expanded,
-    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
+    handlers: { onPointerDown },
   };
 }

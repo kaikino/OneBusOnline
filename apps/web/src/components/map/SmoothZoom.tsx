@@ -43,6 +43,7 @@ export function SmoothZoom() {
     let targetZoom = map.getZoom();
     let anchor: Point;
     let frame: number | null = null;
+    let starting = false;
 
     const step = () => {
       const remaining = targetZoom - map.getZoom();
@@ -62,7 +63,9 @@ export function SmoothZoom() {
       if (frame === null) {
         targetZoom = map.getZoom();
         map.stop();
+        starting = true;
         zoomer._moveStart(true, false);
+        starting = false;
         frame = requestAnimationFrame(step);
       }
       const pxPerLevel = e.ctrlKey ? PINCH_PX_PER_ZOOM_LEVEL : SCROLL_PX_PER_ZOOM_LEVEL;
@@ -73,6 +76,13 @@ export function SmoothZoom() {
       anchor = map.mouseEventToContainerPoint(e);
     };
 
+    // A drag or fly-to that begins mid-zoom takes over; easing on would undo it.
+    const yieldToOtherMovement = () => {
+      if (starting || frame === null) return;
+      cancelAnimationFrame(frame);
+      frame = null;
+    };
+
     // Leaflet closes every pinch with a 250 ms zoom animation and ignores drags
     // until it ends. Without snapping there is nothing to animate, so end it at once.
     const skipIdleAnimation = (e: ZoomAnimEvent) => {
@@ -80,9 +90,11 @@ export function SmoothZoom() {
     };
 
     container.addEventListener("wheel", onWheel, { passive: false });
+    map.on("movestart", yieldToOtherMovement);
     map.on("zoomanim", skipIdleAnimation);
     return () => {
       container.removeEventListener("wheel", onWheel);
+      map.off("movestart", yieldToOtherMovement);
       map.off("zoomanim", skipIdleAnimation);
       if (frame !== null) cancelAnimationFrame(frame);
     };

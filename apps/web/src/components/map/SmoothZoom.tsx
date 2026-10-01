@@ -1,4 +1,4 @@
-import type { LatLng, Map as LeafletMap, Point } from "leaflet";
+import type { LatLng, Map as LeafletMap, Point, ZoomAnimEvent } from "leaflet";
 import { useEffect } from "react";
 import { useMap } from "react-leaflet";
 
@@ -20,6 +20,7 @@ interface ContinuousZoom {
   _moveStart(zoomChanged: boolean, noMoveStart: boolean): void;
   _move(center: LatLng, zoom: number): void;
   _moveEnd(zoomChanged: boolean): void;
+  _onZoomTransitionEnd(): void;
 }
 
 /** The center that keeps the map location under `anchor` fixed at `zoom`. */
@@ -29,8 +30,11 @@ function centerAround(map: LeafletMap, anchor: Point, zoom: number): LatLng {
   return map.containerPointToLatLng(viewCenter.add(offset));
 }
 
-/** Continuous wheel and trackpad zoom around the cursor. Requires `zoomSnap={0}`. */
-export function SmoothWheelZoom() {
+/**
+ * Continuous zoom. Wheel and trackpad gestures are handled here; touch pinches
+ * are Leaflet's own, minus their closing animation. Requires `zoomSnap={0}`.
+ */
+export function SmoothZoom() {
   const map = useMap();
 
   useEffect(() => {
@@ -69,9 +73,17 @@ export function SmoothWheelZoom() {
       anchor = map.mouseEventToContainerPoint(e);
     };
 
+    // Leaflet closes every pinch with a 250 ms zoom animation and ignores drags
+    // until it ends. Without snapping there is nothing to animate, so end it at once.
+    const skipIdleAnimation = (e: ZoomAnimEvent) => {
+      if (e.zoom === map.getZoom()) zoomer._onZoomTransitionEnd();
+    };
+
     container.addEventListener("wheel", onWheel, { passive: false });
+    map.on("zoomanim", skipIdleAnimation);
     return () => {
       container.removeEventListener("wheel", onWheel);
+      map.off("zoomanim", skipIdleAnimation);
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [map]);

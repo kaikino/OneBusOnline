@@ -7,7 +7,7 @@ import { USER_ICON } from "../lib/mapIcons";
 import type { RouteFilter } from "../lib/routeFilter";
 import { RouteLine } from "./map/RouteLine";
 import { RouteVehicles } from "./map/RouteVehicles";
-import { SmoothWheelZoom } from "./map/SmoothWheelZoom";
+import { SmoothZoom } from "./map/SmoothZoom";
 import { StopMarkers } from "./map/StopMarkers";
 
 const SEATTLE: [number, number] = [47.6062, -122.3321];
@@ -79,6 +79,7 @@ export function TransitMap({
       minZoom={3}
       maxZoom={19}
       zoomSnap={0}
+      bounceAtZoomLimits={false}
       scrollWheelZoom={false}
       maxBounds={[
         [-85, -180],
@@ -91,7 +92,7 @@ export function TransitMap({
     >
       <ZoomControl position="topright" />
       <TileLayer attribution={ATTRIBUTION} url={TILE_URL} keepBuffer={6} />
-      <SmoothWheelZoom />
+      <SmoothZoom />
       <MapEvents onViewportChange={setViewport} onBackgroundClick={onBackgroundClick} />
       {routeFilter && (
         <>

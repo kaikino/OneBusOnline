@@ -12,7 +12,7 @@ import OnebusawaySDK, { NotFoundError } from "onebusaway-sdk";
 import { cached } from "./cache.js";
 import { byDistanceFrom, toArrivals, toRouteShape, toStop, toVehicles } from "./normalize.js";
 
-const TTL_SEC = { stops: 600, arrivals: 25, vehicles: 15, routeShape: 86_400 };
+const TTL_SEC = { stops: 600, arrivals: 10, vehicles: 15, routeShape: 86_400 };
 
 /** OBA caps each stop query, so crowded boxes are split into quadrants, up to this many calls. */
 const MAX_CALLS_PER_BBOX = 36;

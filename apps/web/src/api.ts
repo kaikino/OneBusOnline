@@ -11,12 +11,12 @@ const BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1`;
 
 type Params = Record<string, string | number | undefined>;
 
-async function get<T>(path: string, params: Params = {}): Promise<T> {
+async function get<T>(path: string, params: Params = {}, init?: RequestInit): Promise<T> {
   const query = new URLSearchParams();
   for (const [name, value] of Object.entries(params)) {
     if (value !== undefined) query.set(name, String(value));
   }
-  const res = await fetch(`${BASE_URL}${path}?${query}`);
+  const res = await fetch(`${BASE_URL}${path}?${query}`, init);
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
   return res.json();
 }
@@ -28,11 +28,18 @@ export const fetchStopsInBbox = (bbox: Bbox) => get<Stop[]>("/stops/bbox", { ...
 export const searchStops = (q: string, origin?: LatLon) =>
   get<Stop[]>("/stops/search", { q, ...origin });
 
-export const fetchArrivals = (stopId: string, minutesAfter: number, minutesBefore: number) =>
-  get<ArrivalsResponse>(`/stops/${encodeURIComponent(stopId)}/arrivals`, {
-    minutesAfter,
-    minutesBefore,
-  });
+/** `fresh` skips the browser's HTTP cache, for an explicit refresh. */
+export const fetchArrivals = (
+  stopId: string,
+  minutesAfter: number,
+  minutesBefore: number,
+  fresh = false,
+) =>
+  get<ArrivalsResponse>(
+    `/stops/${encodeURIComponent(stopId)}/arrivals`,
+    { minutesAfter, minutesBefore },
+    fresh ? { cache: "no-store" } : undefined,
+  );
 
 export const fetchRouteShape = (routeId: string) =>
   get<RouteShape>(`/routes/${encodeURIComponent(routeId)}/shape`);

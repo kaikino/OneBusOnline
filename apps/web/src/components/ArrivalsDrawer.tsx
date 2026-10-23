@@ -42,7 +42,7 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
   const [shownStop, setShownStop] = useState(stop);
   if (stop && stop !== shownStop) setShownStop(stop);
 
-  const { arrivals, isLoading, isFetching, isFailing, minutesAfter, refresh, extend } =
+  const { arrivals, isLoading, isFetching, isRefreshing, isFailing, minutesAfter, refresh, extend } =
     useArrivals(shownStop?.id, stop !== null);
 
   const listed = routeFilter
@@ -96,11 +96,10 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
           <button
             type="button"
             onClick={refresh}
-            disabled={isFetching}
             aria-label="Refresh arrivals"
-            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
           >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden />
           </button>
         </div>
       </div>

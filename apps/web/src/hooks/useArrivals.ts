@@ -1,11 +1,13 @@
 import type { ArrivalsResponse } from "@onebus/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { fetchArrivals } from "../api";
 
 const MINUTES_BEFORE = 15;
 const MINUTES_AFTER = 120;
 export const EXTEND_STEP_MINUTES = 120;
+/** A refresh spins at least this long, so a fast or cached answer still shows it happened. */
+const MIN_REFRESH_SPIN_MS = 600;
 
 const storageKey = (stopId: string) => `onebus:arrivals:${stopId}`;
 
@@ -39,8 +41,10 @@ export function useArrivals(stopId: string | undefined, live: boolean) {
     setMinutesAfter(MINUTES_AFTER);
   }
 
+  const queryClient = useQueryClient();
+  const queryKey = ["arrivals", stopId, minutesAfter];
   const query = useQuery({
-    queryKey: ["arrivals", stopId, minutesAfter],
+    queryKey,
     queryFn: () => fetchArrivals(stopId!, minutesAfter, MINUTES_BEFORE),
     enabled: stopId !== undefined && live,
     staleTime: 15_000,
@@ -55,13 +59,29 @@ export function useArrivals(stopId: string | undefined, live: boolean) {
 
   const saved = useMemo(() => (stopId ? loadSaved(stopId) : undefined), [stopId]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    if (!stopId) return;
+    setRefreshing(true);
+    await Promise.allSettled([
+      queryClient.fetchQuery({
+        queryKey,
+        queryFn: () => fetchArrivals(stopId, minutesAfter, MINUTES_BEFORE, true),
+        staleTime: 0,
+      }),
+      new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_SPIN_MS)),
+    ]);
+    setRefreshing(false);
+  };
+
   return {
     arrivals: (query.data ?? saved)?.arrivals ?? [],
     isLoading: query.isPending,
     isFetching: query.isFetching,
+    isRefreshing: refreshing || query.isFetching,
     isFailing: query.isError || query.isRefetchError,
     minutesAfter,
-    refresh: () => void query.refetch(),
+    refresh: () => void refresh(),
     extend: () => setMinutesAfter((minutes) => minutes + EXTEND_STEP_MINUTES),
   };
 }

@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { APIError, NotFoundError } from "onebusaway-sdk";
 import { ZodError } from "zod";
+import { notifyRoutes } from "./notify.js";
 import { obaConfigured } from "./oba.js";
 import { routes } from "./routes.js";
 
@@ -35,7 +36,7 @@ const app = express();
 app.use(
   cors({ origin: corsOrigins.length > 0 ? corsOrigins : process.env.NODE_ENV !== "production" }),
 );
-app.use("/api/v1", routes);
+app.use("/api/v1", notifyRoutes, routes);
 app.use(handleError);
 
 export default app;

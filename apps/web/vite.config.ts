@@ -34,6 +34,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Shows bus notifications; see public/push-sw.js.
+        importScripts: ["push-sw.js"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [

@@ -1,15 +1,18 @@
 import type { LatLon, Stop } from "@onebus/shared";
 import type { Map as LeafletMap } from "leaflet";
-import { Crosshair, WifiOff } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { Crosshair, Star, WifiOff } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrivalsDrawer } from "./components/ArrivalsDrawer";
 import { SHEET_PREVIEW_HEIGHT } from "./components/BottomSheet";
+import { SavedStopsPage } from "./components/saved/SavedStopsPage";
 import { SearchBar } from "./components/SearchBar";
 import { TransitMap } from "./components/TransitMap";
 import { useGeolocation } from "./hooks/useGeolocation";
 import { useOnline } from "./hooks/useOnline";
+import { useReminderSync } from "./hooks/useReminderSync";
 import type { SheetSnap } from "./hooks/useSheetDrag";
 import type { RouteFilter } from "./lib/routeFilter";
+import { savedStops } from "./lib/saved";
 
 const FOCUS_ZOOM = 15;
 
@@ -19,6 +22,8 @@ export default function App() {
   const [stop, setStop] = useState<Stop | null>(null);
   const [drawerExpanded, setDrawerExpanded] = useState(false);
   const [routeFilter, setRouteFilter] = useState<RouteFilter | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const reminderSyncError = useReminderSync();
 
   const flyTo = useCallback(({ lat, lon }: LatLon) => {
     mapRef.current?.flyTo([lat, lon], FOCUS_ZOOM, { duration: 1 });
@@ -31,6 +36,34 @@ export default function App() {
     setDrawerExpanded(false);
     setRouteFilter(null);
   };
+
+  const showStop = (next: Stop) => {
+    setSavedOpen(false);
+    selectStop(next);
+    flyTo(next);
+  };
+
+  // Tapping a bus notification opens `/?stop=<id>`, or messages an already open app.
+  const showStopRef = useRef(showStop);
+  showStopRef.current = showStop;
+  useEffect(() => {
+    const showSaved = (stopId: string) => {
+      const saved = savedStops.get().find((stop) => stop.id === stopId);
+      if (saved) showStopRef.current(saved);
+    };
+    const url = new URL(location.href);
+    const stopId = url.searchParams.get("stop");
+    if (stopId) {
+      url.searchParams.delete("stop");
+      history.replaceState(null, "", url);
+      showSaved(stopId);
+    }
+    const onMessage = (event: MessageEvent<{ stopId?: string }>) => {
+      if (event.data?.stopId) showSaved(event.data.stopId);
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, []);
 
   const snapDrawer = (snap: SheetSnap) => {
     if (snap === "closed") selectStop(null);
@@ -53,14 +86,23 @@ export default function App() {
         <h1 className="text-base font-semibold tracking-tight text-slate-50 md:text-lg">
           OneBusOnline
         </h1>
+        <button
+          type="button"
+          onClick={() => setSavedOpen(!savedOpen)}
+          aria-pressed={savedOpen}
+          className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-slate-50"
+        >
+          <Star
+            className={`h-4 w-4 ${savedOpen ? "fill-pink-500 text-pink-500" : ""}`}
+            aria-hidden
+          />
+          Saved
+        </button>
       </header>
       <main className="relative min-h-0 flex-1">
         <SearchBar
           origin={geolocation.position}
-          onPickStop={(picked) => {
-            selectStop(picked);
-            flyTo(picked);
-          }}
+          onPickStop={showStop}
         />
         <TransitMap
           ref={mapRef}
@@ -94,6 +136,13 @@ export default function App() {
           >
             {geolocation.error}
           </p>
+        )}
+        {savedOpen && (
+          <SavedStopsPage
+            onClose={() => setSavedOpen(false)}
+            onSelectStop={showStop}
+            syncError={reminderSyncError}
+          />
         )}
       </main>
       <ArrivalsDrawer

@@ -1,12 +1,14 @@
 import type { Arrival, Stop } from "@onebus/shared";
-import { Bus, RefreshCw, X } from "lucide-react";
+import { Bus, RefreshCw, Star, X } from "lucide-react";
 import { useState } from "react";
 import { EXTEND_STEP_MINUTES, useArrivals } from "../hooks/useArrivals";
 import { useNow } from "../hooks/useNow";
 import { useOnline } from "../hooks/useOnline";
+import { useSavedStops } from "../hooks/useSaved";
 import type { SheetSnap } from "../hooks/useSheetDrag";
 import { hasDeparted } from "../lib/format";
 import { type RouteFilter, matchesRoute } from "../lib/routeFilter";
+import { toggleSaved } from "../lib/saved";
 import { ArrivalChip } from "./arrivals/ArrivalChip";
 import { ArrivalRow } from "./arrivals/ArrivalRow";
 import { BottomSheet } from "./BottomSheet";
@@ -34,6 +36,7 @@ function nextPerRoute(arrivals: Arrival[], now: number): Arrival[] {
 export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFilterChange }: Props) {
   const now = useNow(5000);
   const online = useOnline();
+  const savedStops = useSavedStops();
 
   // Keeps the stop and its arrivals on screen while the sheet slides closed.
   const [shownStop, setShownStop] = useState(stop);
@@ -71,6 +74,8 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
     notice = isLoading ? "Loading…" : "No upcoming arrivals.";
   }
 
+  const saved = savedStops.some((saved) => saved.id === shownStop?.id);
+
   const header = (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -78,15 +83,26 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
           <Bus className="h-5 w-5 shrink-0 text-sky-400" aria-hidden />
           <span className="truncate">{shownStop?.name}</span>
         </h2>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={isFetching}
-          aria-label="Refresh arrivals"
-          className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => shownStop && toggleSaved(shownStop)}
+            aria-pressed={saved}
+            aria-label={saved ? "Remove saved stop" : "Save stop"}
+            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+          >
+            <Star className={`h-4 w-4 ${saved ? "fill-pink-500 text-pink-500" : ""}`} aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={isFetching}
+            aria-label="Refresh arrivals"
+            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
+          </button>
+        </div>
       </div>
       {expanded && shownStop?.code && (
         <p className="mt-1 text-sm text-slate-400">Code {shownStop.code}</p>

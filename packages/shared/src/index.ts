@@ -60,3 +60,39 @@ export interface Vehicle {
   lastUpdateMs: number;
   occupancy?: string;
 }
+
+/** A weekly "notify me before this bus" reminder for one route and direction at a stop. */
+export interface Reminder {
+  id: string;
+  stopId: string;
+  stopName: string;
+  routeId: string;
+  routeShortName: string;
+  headsign: string;
+  /** Scheduled arrival at the stop, "HH:MM" in 24-hour time. */
+  time: string;
+  /** Days of the week it repeats on, 0 = Sunday. */
+  days: number[];
+  minutesBefore: number;
+  enabled: boolean;
+}
+
+/** `PushSubscription.toJSON()`. */
+export interface PushSubscriptionJson {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/** Replaces every reminder registered for a device. */
+export interface ReminderSync {
+  subscription: PushSubscriptionJson;
+  timeZone: string;
+  reminders: Reminder[];
+}
+
+export interface PushMessage {
+  title: string;
+  body: string;
+  tag: string;
+  stopId?: string;
+}

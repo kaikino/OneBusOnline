@@ -1,14 +1,14 @@
 import type { Stop } from "@onebus/shared";
 import { Redis } from "ioredis";
 
-const PREFIX = "onebus:v2:";
+export const PREFIX = "onebus:v2:";
 
 const url = process.env.REDIS_URL?.trim();
 const redis = url ? new Redis(url, { maxRetriesPerRequest: 1, commandTimeout: 1500 }) : null;
 redis?.on("error", (err) => console.error("Redis:", err.message));
 
 /** Null while Redis is down, so an outage costs cache hits rather than seconds per request. */
-const store = () => (redis?.status === "reconnecting" ? null : redis);
+export const store = () => (redis?.status === "reconnecting" ? null : redis);
 
 export const cacheEnabled = redis !== null;
 

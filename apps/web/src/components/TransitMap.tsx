@@ -1,7 +1,8 @@
-import type { LatLon, Stop } from "@onebus/shared";
+import { type LatLon, type Stop, bboxContainsPoint } from "@onebus/shared";
 import type { Map as LeafletMap } from "leaflet";
-import { type Ref, useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, ZoomControl, useMapEvents } from "react-leaflet";
+import { useSavedStops } from "../hooks/useSaved";
 import { type Viewport, useStops } from "../hooks/useStops";
 import { USER_ICON } from "../lib/mapIcons";
 import type { RouteFilter } from "../lib/routeFilter";
@@ -71,7 +72,19 @@ export function TransitMap({
   onBackgroundClick,
 }: Props) {
   const [viewport, setViewport] = useState<Viewport | null>(null);
-  const stops = useStops(viewport);
+  const nearbyStops = useStops(viewport);
+  const savedStops = useSavedStops();
+  const savedIds = useMemo(() => new Set(savedStops.map((stop) => stop.id)), [savedStops]);
+
+  // Saved stops are drawn at every zoom, not just when sampling keeps them.
+  const stops = useMemo(() => {
+    if (!viewport) return nearbyStops;
+    const drawn = new Set(nearbyStops.map((stop) => stop.id));
+    const missing = savedStops.filter(
+      (stop) => !drawn.has(stop.id) && bboxContainsPoint(viewport.bbox, stop.lat, stop.lon),
+    );
+    return missing.length > 0 ? [...nearbyStops, ...missing] : nearbyStops;
+  }, [nearbyStops, savedStops, viewport]);
 
   return (
     <MapContainer
@@ -112,6 +125,7 @@ export function TransitMap({
       <StopMarkers
         stops={stops}
         selected={selectedStop}
+        savedIds={savedIds}
         highlightRouteId={routeFilter?.routeId}
         onSelect={onSelectStop}
       />

@@ -58,6 +58,11 @@ html {
 .marker-stop.marker-dimmed {
   opacity: 0.2;
 }
+.marker-stop.marker-saved {
+  --color: #ec4899;
+  --border: #fff;
+  opacity: 1;
+}
 .marker-stop.marker-selected {
   --color: #facc15;
   --border: #fff;

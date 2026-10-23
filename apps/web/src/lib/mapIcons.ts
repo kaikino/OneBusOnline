@@ -25,7 +25,7 @@ function markerIcon(className: string, size: number, heading?: number): DivIcon 
   return icon;
 }
 
-export type StopMarkerState = "default" | "selected" | "dimmed";
+export type StopMarkerState = "default" | "saved" | "selected" | "dimmed";
 
 export function stopIcon(direction: string | undefined, state: StopMarkerState): DivIcon {
   const octant = COMPASS.indexOf(direction ?? "");

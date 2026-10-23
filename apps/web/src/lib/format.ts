@@ -35,3 +35,16 @@ export function formatAge(ageMs: number): string {
   if (minutes < 60) return `${minutes} min ago`;
   return `${Math.round(minutes / 60)} hr ago`;
 }
+
+/** "HH:MM" (24-hour) at `timeMs`, as reminders store times. */
+export function timeOfDay(timeMs: number): string {
+  const date = new Date(timeMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Formats a reminder's "HH:MM" like `formatClock`. */
+export function formatTimeOfDay(time: string): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  return formatClock(new Date(2000, 0, 1, hours, minutes).getTime());
+}

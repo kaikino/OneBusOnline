@@ -6,6 +6,7 @@ import { type StopMarkerState, stopIcon } from "../../lib/mapIcons";
 interface Props {
   stops: Stop[];
   selected: Stop | null;
+  savedIds: ReadonlySet<string>;
   /** When set, stops this route doesn't serve are dimmed. */
   highlightRouteId?: string;
   onSelect: (stop: Stop) => void;
@@ -14,11 +15,14 @@ interface Props {
 export const StopMarkers = memo(function StopMarkers({
   stops,
   selected,
+  savedIds,
   highlightRouteId,
   onSelect,
 }: Props) {
-  const stateOf = (stop: Stop): StopMarkerState =>
-    highlightRouteId && !stop.routeIds.includes(highlightRouteId) ? "dimmed" : "default";
+  const stateOf = (stop: Stop): StopMarkerState => {
+    if (highlightRouteId && !stop.routeIds.includes(highlightRouteId)) return "dimmed";
+    return savedIds.has(stop.id) ? "saved" : "default";
+  };
 
   return (
     <>
@@ -29,6 +33,7 @@ export const StopMarkers = memo(function StopMarkers({
             key={stop.id}
             position={[stop.lat, stop.lon]}
             icon={stopIcon(stop.direction, stateOf(stop))}
+            zIndexOffset={savedIds.has(stop.id) ? 200 : 0}
             eventHandlers={{ click: () => onSelect(stop) }}
           />
         ))}

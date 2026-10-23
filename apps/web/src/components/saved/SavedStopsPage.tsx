@@ -189,7 +189,14 @@ export function SavedStopsPage({ onClose, onSelectStop, syncError }: Props) {
               <SavedStop
                 key={stop.id}
                 stop={stop}
-                reminders={allReminders.filter((reminder) => reminder.stopId === stop.id)}
+                reminders={allReminders
+                  .filter((reminder) => reminder.stopId === stop.id)
+                  .sort(
+                    (a, b) =>
+                      a.routeShortName.localeCompare(b.routeShortName, undefined, { numeric: true }) ||
+                      a.headsign.localeCompare(b.headsign) ||
+                      a.time.localeCompare(b.time),
+                  )}
                 onSelect={() => onSelectStop(stop)}
               />
             ))}

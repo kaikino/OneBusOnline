@@ -45,13 +45,24 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
   const options = routeOptions(arrivals);
 
   const [routeKey, setRouteKey] = useState<string>();
-  const [time, setTime] = useState("");
+  const [times, setTimes] = useState<string[]>([]);
+  const [customTime, setCustomTime] = useState("");
   const [days, setDays] = useState(WEEKDAYS);
   const [minutesBefore, setMinutesBefore] = useState(5);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const route = options.find((option) => option.key === routeKey) ?? options[0];
+
+  const toggleTime = (time: string) =>
+    setTimes((list) =>
+      list.includes(time) ? list.filter((t) => t !== time) : [...list, time].sort(),
+    );
+
+  const addCustomTime = () => {
+    setTimes((list) => (list.includes(customTime) ? list : [...list, customTime].sort()));
+    setCustomTime("");
+  };
 
   const save = async () => {
     setSaving(true);
@@ -60,7 +71,7 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
       await subscribeToPush();
       reminders.update((list) => [
         ...list,
-        {
+        ...times.map((time) => ({
           id: crypto.randomUUID(),
           stopId: stop.id,
           stopName: stop.name,
@@ -71,7 +82,7 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
           days,
           minutesBefore,
           enabled: true,
-        },
+        })),
       ]);
       onDone();
     } catch (err) {
@@ -96,7 +107,7 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
           value={route.key}
           onChange={(event) => {
             setRouteKey(event.target.value);
-            setTime("");
+            setTimes([]);
           }}
           className={field}
         >
@@ -109,30 +120,42 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
       </label>
 
       <div>
-        <label className="block">
-          <span className="mb-1 block text-xs text-slate-400">Scheduled at this stop</span>
-          <input
-            type="time"
-            value={time}
-            onChange={(event) => setTime(event.target.value)}
-            className={`${field} [color-scheme:dark]`}
-          />
-        </label>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {route.times.slice(0, SUGGESTED_TIMES).map((suggested) => (
+        <span className="mb-1 block text-xs text-slate-400">
+          Scheduled at this stop — pick one or more
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {[...new Set([...route.times.slice(0, SUGGESTED_TIMES), ...times])].sort().map((time) => (
             <button
-              key={suggested}
+              key={time}
               type="button"
-              onClick={() => setTime(suggested)}
+              onClick={() => toggleTime(time)}
+              aria-pressed={times.includes(time)}
               className={`rounded-md border px-2 py-1 text-xs ${
-                suggested === time
+                times.includes(time)
                   ? "border-sky-500 bg-sky-500/20 text-sky-100"
                   : "border-slate-700 text-slate-300 hover:border-slate-500"
               }`}
             >
-              {formatTimeOfDay(suggested)}
+              {formatTimeOfDay(time)}
             </button>
           ))}
+        </div>
+        <div className="mt-2 flex gap-2">
+          <input
+            type="time"
+            value={customTime}
+            onChange={(event) => setCustomTime(event.target.value)}
+            aria-label="Another time"
+            className={`${field} [color-scheme:dark]`}
+          />
+          <button
+            type="button"
+            onClick={addCustomTime}
+            disabled={!customTime}
+            className="shrink-0 rounded-md border border-slate-700 px-3 text-slate-300 hover:border-slate-500 disabled:opacity-50"
+          >
+            Add
+          </button>
         </div>
       </div>
 
@@ -163,10 +186,10 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
         <button
           type="button"
           onClick={save}
-          disabled={saving || !time || days.length === 0}
+          disabled={saving || times.length === 0 || days.length === 0}
           className="rounded-md bg-sky-600 px-3 py-1.5 font-medium text-white hover:bg-sky-500 disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? "Saving…" : times.length > 1 ? `Save ${times.length}` : "Save"}
         </button>
       </div>
     </div>

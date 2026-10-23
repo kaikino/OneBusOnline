@@ -40,10 +40,18 @@ const production = process.env.NODE_ENV === "production";
 /** Without QStash, local development schedules wake-ups with in-process timers. */
 const useTimers = !qstash && !production;
 
-export const pushConfigured =
-  vapid !== null &&
-  obaConfigured &&
-  (useTimers || (qstash !== null && appUrl !== undefined && (cacheEnabled || !production)));
+/** Names of the settings notifications still need, for diagnosing a deployment. */
+const missingConfig = [
+  !vapid && "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY",
+  !obaConfigured && "ONEBUSAWAY_API_KEY",
+  !useTimers && !qstash && "QSTASH_TOKEN",
+  !useTimers && !appUrl && "APP_URL (or Vercel system environment variables)",
+  production && !cacheEnabled && "REDIS_URL",
+].filter((name): name is string => Boolean(name));
+
+export const pushConfigured = missingConfig.length === 0;
+
+if (!pushConfigured) console.warn(`Notifications disabled, missing: ${missingConfig.join(", ")}`);
 
 /** What a queued wake-up carries back to the server. */
 interface Wake {
@@ -362,7 +370,7 @@ const wakeBody = z.object({
 
 const requirePush: RequestHandler = (_req, res, next) => {
   if (pushConfigured) return next();
-  res.status(503).json({ error: "Push notifications are not configured" });
+  res.status(503).json({ error: "Push notifications are not configured", missing: missingConfig });
 };
 
 export const notifyRoutes = Router();

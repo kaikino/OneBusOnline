@@ -45,6 +45,8 @@ const missingConfig = [
   !vapid && "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY",
   !obaConfigured && "ONEBUSAWAY_API_KEY",
   !useTimers && !qstash && "QSTASH_TOKEN",
+  !useTimers && !env("QSTASH_CURRENT_SIGNING_KEY") && "QSTASH_CURRENT_SIGNING_KEY",
+  !useTimers && !env("QSTASH_NEXT_SIGNING_KEY") && "QSTASH_NEXT_SIGNING_KEY",
   !useTimers && !appUrl && "APP_URL (or Vercel system environment variables)",
   production && !cacheEnabled && "REDIS_URL",
 ].filter((name): name is string => Boolean(name));

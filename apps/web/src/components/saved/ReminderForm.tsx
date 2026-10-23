@@ -1,20 +1,26 @@
 import type { Arrival, Stop } from "@onebus/shared";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { useArrivals } from "../../hooks/useArrivals";
+import { fetchArrivals } from "../../api";
 import { formatTimeOfDay, timeOfDay } from "../../lib/format";
 import { subscribeToPush } from "../../lib/push";
 import { reminders } from "../../lib/saved";
 import { DayToggles, MinutesBeforeSelect } from "./ReminderControls";
 
 const WEEKDAYS = [1, 2, 3, 4, 5];
-const SUGGESTED_TIMES = 8;
+/** The next 24 hours of arrivals cover every time of day a route stops here. */
+const DAY_MINUTES = 24 * 60;
+/** Service days run past midnight, so times before this sort after the evening. */
+const SERVICE_DAY_START = "04:00";
+
+const serviceDayOrder = (time: string) => (time < SERVICE_DAY_START ? `~${time}` : time);
 
 interface RouteOption {
   key: string;
   routeId: string;
   routeShortName: string;
   headsign: string;
-  /** Upcoming scheduled times at the stop, offered as shortcuts. */
+  /** Every scheduled time at the stop, in service-day order. */
   times: string[];
 }
 
@@ -29,9 +35,10 @@ function routeOptions(arrivals: Arrival[]): RouteOption[] {
       options.set(key, option);
     }
     const time = timeOfDay(arrival.scheduledTimeMs);
-    if (arrival.scheduledTimeMs >= Date.now() && !option.times.includes(time)) {
-      option.times.push(time);
-    }
+    if (!option.times.includes(time)) option.times.push(time);
+  }
+  for (const option of options.values()) {
+    option.times.sort((a, b) => serviceDayOrder(a).localeCompare(serviceDayOrder(b)));
   }
   return [...options.values()].sort((a, b) =>
     a.routeShortName.localeCompare(b.routeShortName, undefined, { numeric: true }),
@@ -41,8 +48,12 @@ function routeOptions(arrivals: Arrival[]): RouteOption[] {
 const field = "w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100";
 
 export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void }) {
-  const { arrivals, isLoading } = useArrivals(stop.id, true);
-  const options = routeOptions(arrivals);
+  const schedule = useQuery({
+    queryKey: ["daySchedule", stop.id],
+    queryFn: () => fetchArrivals(stop.id, DAY_MINUTES, 0),
+    staleTime: 30 * 60_000,
+  });
+  const options = routeOptions(schedule.data?.arrivals ?? []);
 
   const [routeKey, setRouteKey] = useState<string>();
   const [times, setTimes] = useState<string[]>([]);
@@ -94,7 +105,11 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
   if (!route) {
     return (
       <p className="text-sm text-slate-400">
-        {isLoading ? "Loading routes…" : "No buses serve this stop in the next two hours."}
+        {schedule.isPending
+          ? "Loading routes…"
+          : schedule.isError
+            ? "Couldn't load this stop's schedule."
+            : "No buses serve this stop in the next 24 hours."}
       </p>
     );
   }
@@ -123,22 +138,24 @@ export function ReminderForm({ stop, onDone }: { stop: Stop; onDone: () => void 
         <span className="mb-1 block text-xs text-slate-400">
           Scheduled at this stop — pick one or more
         </span>
-        <div className="flex flex-wrap gap-1.5">
-          {[...new Set([...route.times.slice(0, SUGGESTED_TIMES), ...times])].sort().map((time) => (
-            <button
-              key={time}
-              type="button"
-              onClick={() => toggleTime(time)}
-              aria-pressed={times.includes(time)}
-              className={`rounded-md border px-2 py-1 text-xs ${
-                times.includes(time)
-                  ? "border-sky-500 bg-sky-500/20 text-sky-100"
-                  : "border-slate-700 text-slate-300 hover:border-slate-500"
-              }`}
-            >
-              {formatTimeOfDay(time)}
-            </button>
-          ))}
+        <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto overscroll-contain">
+          {[...new Set([...route.times, ...times])]
+            .sort((a, b) => serviceDayOrder(a).localeCompare(serviceDayOrder(b)))
+            .map((time) => (
+              <button
+                key={time}
+                type="button"
+                onClick={() => toggleTime(time)}
+                aria-pressed={times.includes(time)}
+                className={`rounded-md border px-2 py-1 text-xs ${
+                  times.includes(time)
+                    ? "border-sky-500 bg-sky-500/20 text-sky-100"
+                    : "border-slate-700 text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                {formatTimeOfDay(time)}
+              </button>
+            ))}
         </div>
         <div className="mt-2 flex gap-2">
           <input

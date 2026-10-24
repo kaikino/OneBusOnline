@@ -73,6 +73,8 @@ export interface Reminder {
   time: string;
   /** Days of the week it repeats on, 0 = Sunday. */
   days: number[];
+  /** "YYYY-MM-DD" for a one-time reminder, which ignores `days`. */
+  date?: string;
   minutesBefore: number;
   enabled: boolean;
 }

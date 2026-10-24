@@ -13,6 +13,8 @@ const MATCH_WINDOW_MS = 5 * 60_000;
 const MAX_DELAY_MS = 6 * 24 * 60 * 60_000;
 /** Wake-ups this close to their target are treated as on time. */
 const SLACK_MS = 60_000;
+/** A one-time reminder can still be set this long after its scheduled time, for a late bus. */
+const LATE_BUS_MS = 30 * 60_000;
 
 const env = (name: string) => process.env[name]?.trim() || undefined;
 
@@ -197,10 +199,18 @@ function zonedTimeMs(date: ZonedDate, hour: number, minute: number, timeZone: st
   return asUtc - offset;
 }
 
-/** The scheduled time of the first occurrence whose notification is due after `afterMs`. */
+/**
+ * The scheduled time of the first occurrence whose notification is due after `afterMs`, or
+ * for a one-time reminder, its bus unless that's long gone.
+ */
 function nextOccurrence(reminder: Reminder, timeZone: string, afterMs: number): number | undefined {
   const [hour, minute] = reminder.time.split(":").map(Number);
   const leadMs = reminder.minutesBefore * 60_000;
+  if (reminder.date) {
+    const [year, month, day] = reminder.date.split("-").map(Number);
+    const scheduledMs = zonedTimeMs({ year, month, day }, hour, minute, timeZone);
+    return scheduledMs + LATE_BUS_MS > afterMs ? scheduledMs : undefined;
+  }
   const today = zoned(afterMs, timeZone);
   // Steps through calendar dates rather than 24-hour periods, which skip or repeat days around DST.
   for (let offset = 0; offset <= 7; offset++) {
@@ -220,12 +230,13 @@ function nextOccurrence(reminder: Reminder, timeZone: string, afterMs: number): 
 async function scheduleNext(deviceId: string, entry: Entry, afterMs: number) {
   const { reminder, timeZone } = entry;
   const scheduledMs = reminder.enabled ? nextOccurrence(reminder, timeZone, afterMs) : undefined;
-  if (scheduledMs === undefined) return undefined;
+  if (scheduledMs === undefined || scheduledMs === entry.handledMs) return undefined;
   return schedule({
     deviceId,
     reminderId: reminder.id,
     scheduledMs,
-    wakeMs: scheduledMs - reminder.minutesBefore * 60_000,
+    // A one-time reminder set late wakes now, and the live check finds where the bus is.
+    wakeMs: Math.max(scheduledMs - reminder.minutesBefore * 60_000, Date.now()),
   });
 }
 
@@ -352,6 +363,7 @@ const reminderSchema = z.object({
   headsign: z.string().max(200),
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   days: z.array(z.number().int().min(0).max(6)).max(7),
+  date: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).optional(),
   minutesBefore: z.number().int().min(0).max(120),
   enabled: z.boolean(),
 });
@@ -400,7 +412,8 @@ notifyRoutes.put("/notify/reminders", express.json(), async (req, res) => {
       continue;
     }
     await cancel(old?.wakeId);
-    const entry: Entry = { subscription, timeZone, reminder };
+    // Keeps what was handled, so editing a one-time reminder after it fired doesn't resend it.
+    const entry: Entry = { subscription, timeZone, reminder, handledMs: old?.handledMs };
     entry.wakeId = await scheduleNext(id, entry, Date.now());
     entries.set(reminder.id, entry);
   }

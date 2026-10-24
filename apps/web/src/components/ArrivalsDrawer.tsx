@@ -4,14 +4,15 @@ import { useState } from "react";
 import { EXTEND_STEP_MINUTES, useArrivals } from "../hooks/useArrivals";
 import { useNow } from "../hooks/useNow";
 import { useOnline } from "../hooks/useOnline";
-import { useSavedStops } from "../hooks/useSaved";
+import { useReminders, useSavedStops } from "../hooks/useSaved";
 import type { SheetSnap } from "../hooks/useSheetDrag";
 import { hasDeparted } from "../lib/format";
 import { type RouteFilter, matchesRoute } from "../lib/routeFilter";
-import { toggleSaved } from "../lib/saved";
+import { reminderForArrival, toggleSaved } from "../lib/saved";
 import { ArrivalChip } from "./arrivals/ArrivalChip";
 import { ArrivalRow } from "./arrivals/ArrivalRow";
 import { BottomSheet } from "./BottomSheet";
+import { QuickReminder } from "./saved/QuickReminder";
 
 interface Props {
   stop: Stop | null;
@@ -33,17 +34,37 @@ function nextPerRoute(arrivals: Arrival[], now: number): Arrival[] {
   return [...next.values()];
 }
 
-export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFilterChange }: Props) {
+export function ArrivalsDrawer({
+  stop,
+  expanded,
+  onSnap,
+  routeFilter,
+  onRouteFilterChange,
+}: Props) {
   const now = useNow(5000);
   const online = useOnline();
   const savedStops = useSavedStops();
+  const allReminders = useReminders();
+  /** The arrival whose notification form is open. */
+  const [notifyKey, setNotifyKey] = useState<string>();
 
   // Keeps the stop and its arrivals on screen while the sheet slides closed.
   const [shownStop, setShownStop] = useState(stop);
-  if (stop && stop !== shownStop) setShownStop(stop);
+  if (stop && stop !== shownStop) {
+    setShownStop(stop);
+    setNotifyKey(undefined);
+  }
 
-  const { arrivals, isLoading, isFetching, isRefreshing, isFailing, minutesAfter, refresh, extend } =
-    useArrivals(shownStop?.id, stop !== null);
+  const {
+    arrivals,
+    isLoading,
+    isFetching,
+    isRefreshing,
+    isFailing,
+    minutesAfter,
+    refresh,
+    extend,
+  } = useArrivals(shownStop?.id, stop !== null);
 
   const listed = routeFilter
     ? arrivals.filter((arrival) => matchesRoute(routeFilter, arrival))
@@ -133,12 +154,30 @@ export function ArrivalsDrawer({ stop, expanded, onSnap, routeFilter, onRouteFil
                 <p className="mb-2 text-sm text-slate-400">No upcoming arrivals for this route.</p>
               )}
               <ul className="space-y-2">
-                {listed.map((arrival) => (
-                  <ArrivalRow
-                    key={`${arrival.tripId}:${arrival.scheduledTimeMs}`}
-                    {...toggleProps(arrival)}
-                  />
-                ))}
+                {listed.map((arrival) => {
+                  const key = `${arrival.tripId}:${arrival.scheduledTimeMs}`;
+                  const reminder = shownStop
+                    ? reminderForArrival(allReminders, shownStop.id, arrival)
+                    : undefined;
+                  return (
+                    <ArrivalRow
+                      key={key}
+                      {...toggleProps(arrival)}
+                      notifying={reminder !== undefined}
+                      onNotify={() => setNotifyKey(notifyKey === key ? undefined : key)}
+                    >
+                      {notifyKey === key && shownStop && (
+                        <QuickReminder
+                          stop={shownStop}
+                          arrival={arrival}
+                          existing={reminder}
+                          now={now}
+                          onDone={() => setNotifyKey(undefined)}
+                        />
+                      )}
+                    </ArrivalRow>
+                  );
+                })}
               </ul>
               <button
                 type="button"

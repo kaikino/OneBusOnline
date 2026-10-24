@@ -1,4 +1,5 @@
-import type { Reminder, Stop } from "@onebus/shared";
+import type { Arrival, Reminder, Stop } from "@onebus/shared";
+import { localDate, reminderDateMs, timeOfDay } from "./format";
 
 /** A list kept in localStorage, readable with `useSyncExternalStore` and synced across tabs. */
 function storedList<T>(key: string) {
@@ -61,4 +62,36 @@ export function updateReminder(id: string, change: Partial<Reminder>) {
   reminders.update((list) =>
     list.map((reminder) => (reminder.id === id ? { ...reminder, ...change } : reminder)),
   );
+}
+
+/** Whether `stop` is saved, saving it if not. */
+export function ensureSaved(stop: Stop) {
+  if (!savedStops.get().some((saved) => saved.id === stop.id)) toggleSaved(stop);
+}
+
+/** The reminder that covers `arrival`, one-time or repeating. */
+export function reminderForArrival(list: Reminder[], stopId: string, arrival: Arrival) {
+  const time = timeOfDay(arrival.scheduledTimeMs);
+  const date = localDate(arrival.scheduledTimeMs);
+  const day = new Date(arrival.scheduledTimeMs).getDay();
+  return list.find(
+    (reminder) =>
+      reminder.stopId === stopId &&
+      reminder.routeId === arrival.routeId &&
+      reminder.headsign === arrival.headsign &&
+      reminder.time === time &&
+      (reminder.date ? reminder.date === date : reminder.days.includes(day)),
+  );
+}
+
+/** One-time reminders are kept this long after their bus, then dropped. */
+const ONE_TIME_GRACE_MS = 60 * 60_000;
+
+export function removeExpiredReminders(now = Date.now()) {
+  const expired = (reminder: Reminder) =>
+    reminder.date !== undefined &&
+    reminderDateMs(reminder.date, reminder.time) + ONE_TIME_GRACE_MS < now;
+  if (reminders.get().some(expired)) {
+    reminders.update((list) => list.filter((reminder) => !expired(reminder)));
+  }
 }

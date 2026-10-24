@@ -48,3 +48,17 @@ export function formatTimeOfDay(time: string): string {
   const [hours, minutes] = time.split(":").map(Number);
   return formatClock(new Date(2000, 0, 1, hours, minutes).getTime());
 }
+
+/** "YYYY-MM-DD" at `timeMs`, as one-time reminders store dates. */
+export function localDate(timeMs: number): string {
+  const date = new Date(timeMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The instant a one-time reminder's bus is scheduled. */
+export function reminderDateMs(date: string, time: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(year, month - 1, day, hours, minutes).getTime();
+}

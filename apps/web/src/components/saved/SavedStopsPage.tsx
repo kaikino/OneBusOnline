@@ -2,11 +2,17 @@ import type { Reminder, Stop } from "@onebus/shared";
 import { Bell, BellOff, BellPlus, ChevronRight, Star, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useReminders, useSavedStops } from "../../hooks/useSaved";
-import { formatTimeOfDay } from "../../lib/format";
+import { formatTimeOfDay, reminderDateMs } from "../../lib/format";
 import { pushSupport, sendTestNotification } from "../../lib/push";
 import { reminders, toggleSaved, updateReminder } from "../../lib/saved";
 import { DayToggles, MinutesBeforeSelect } from "./ReminderControls";
 import { ReminderForm } from "./ReminderForm";
+
+const ONCE_DATE = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
 
 const iconButton = "rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100";
 
@@ -46,7 +52,25 @@ function ReminderItem({ reminder }: { reminder: Reminder }) {
       <div
         className={`mt-1.5 flex flex-wrap items-center gap-2 ${reminder.enabled ? "" : "opacity-50"}`}
       >
-        <DayToggles days={reminder.days} onChange={(days) => update({ days })} />
+        {reminder.date ? (
+          <>
+            <span className="text-xs text-slate-400">
+              Once · {ONCE_DATE.format(reminderDateMs(reminder.date, reminder.time))}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const day = new Date(reminderDateMs(reminder.date!, reminder.time)).getDay();
+                update({ date: undefined, days: [day] });
+              }}
+              className="rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:border-slate-500"
+            >
+              Repeat weekly
+            </button>
+          </>
+        ) : (
+          <DayToggles days={reminder.days} onChange={(days) => update({ days })} />
+        )}
         <MinutesBeforeSelect
           value={reminder.minutesBefore}
           onChange={(minutesBefore) => update({ minutesBefore })}
